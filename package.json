@@ -2,7 +2,17 @@
   "name": "@boringnode/queue",
   "description": "A simple and efficient queue system for Node.js applications",
   "version": "0.0.1",
+  "main": "build/index.js",
   "type": "module",
+  "files": [
+    "build"
+  ],
+  "exports": {
+    ".": "./build/index.js",
+    "./drivers/*": "./build/src/drivers/*.js",
+    "./contracts/*": "./build/src/contracts/*.js",
+    "./types/*": "./build/src/types/*.js"
+  },
   "imports": {
     "#src/*": "./src/*.ts",
     "#drivers/*": "./src/drivers/*.ts",
@@ -12,7 +22,14 @@
     "#types/*": "./src/types/*.ts"
   },
   "scripts": {
-    "test": "c8 node --enable-source-maps bin/test.ts"
+    "build": "yarn clean && tsup-node",
+    "clean": "del-cli build",
+    "format": "prettier --write .",
+    "lint": "eslint .",
+    "prepublishOnly": "yarn build",
+    "release": "yarn dlx release-it",
+    "test": "c8 node --enable-source-maps bin/test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@lukeed/ms": "^2.0.2",
@@ -29,11 +46,13 @@
     "@japa/runner": "^4.4.0",
     "@types/node": "^24.3.1",
     "c8": "^10.1.3",
+    "del-cli": "^7.0.0",
     "eslint": "^9.35.0",
     "ioredis": "^5.7.0",
     "prettier": "^3.6.2",
     "release-it": "^19.0.4",
     "testcontainers": "^11.5.1",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.2"
   },
   "author": "Romain Lanz <romain.lanz@pm.me>",
