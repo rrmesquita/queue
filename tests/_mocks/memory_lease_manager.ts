@@ -5,7 +5,6 @@ import { parse } from '#src/utils'
 export class MemoryLeaseManager implements LeaseManager {
   readonly #workerId: string
   readonly #leaseTimeout: number
-  readonly #renewalInterval: number
   #activeRenewals = new Map<string, NodeJS.Timeout>()
 
   static leases = new Map<string, { workerId: string; expiresAt: Date }>()
@@ -13,7 +12,6 @@ export class MemoryLeaseManager implements LeaseManager {
   constructor(config: LeaseConfig) {
     this.#workerId = config.workerId
     this.#leaseTimeout = parse(config.leaseTimeout)
-    this.#renewalInterval = parse(config.renewalInterval)
   }
 
   acquire(jobId: string): Promise<boolean> {

@@ -87,6 +87,7 @@ test.group('BackoffStrategy', () => {
 
     assert.deepEqual(returnedConfig, config)
     assert.throws(() => {
+      // @ts-expect-error
       returnedConfig.strategy = 'linear'
     })
   })
