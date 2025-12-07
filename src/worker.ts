@@ -191,6 +191,7 @@ export class Worker {
 
       if (isTimeout && options.failOnTimeout) {
         debug('worker %s: job %s timed out and failOnTimeout is set', this.#id, job.id)
+        await job._lease.commit()
         await instance.failed(e as Error)
         return
       }
@@ -199,7 +200,7 @@ export class Worker {
 
       if (typeof mergedConfig.maxRetries === 'undefined' || mergedConfig.maxRetries <= 0) {
         debug('worker %s: job %s has no retries configured, marking as failed', this.#id, job.id)
-
+        await job._lease.commit()
         await instance.failed(e as Error)
         return
       }
@@ -211,7 +212,7 @@ export class Worker {
           job.id,
           mergedConfig.maxRetries
         )
-
+        await job._lease.commit()
         const exception = new errors.E_JOB_MAX_ATTEMPTS_REACHED([job.name])
         await instance.failed(exception)
 

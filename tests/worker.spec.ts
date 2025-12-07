@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import { setTimeout } from 'node:timers/promises'
 import { Worker } from '#src/worker'
 import { memory } from './_mocks/memory_adapter.ts'
+import { MemoryLeaseManager } from './_mocks/memory_lease_manager.ts'
 import { ChaosAdapter } from './_mocks/chaos_adapter.ts'
 import type { QueueManagerConfig } from '#types/main'
 import { Locator } from '#src/locator'
@@ -666,5 +667,53 @@ test.group('Worker', () => {
 
     // Job should have completed before stop() returned
     assert.isTrue(jobCompleted, 'Job should have completed before worker stopped')
+  })
+
+  test('should release lease when job fails permanently', async ({ assert, cleanup }) => {
+    class FailingJob extends Job {
+      async execute() {
+        throw new Error('Job failed')
+      }
+
+      async failed() {
+        // Job marked as failed
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('FailingJob', FailingJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      MemoryLeaseManager.leases.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'failing-job',
+      name: 'FailingJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    // Process the job (no retries configured, so it fails permanently)
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    // Lease should be released after permanent failure
+    assert.isFalse(
+      MemoryLeaseManager.leases.has('failing-job'),
+      'Lease should be released after permanent failure'
+    )
   })
 })
