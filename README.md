@@ -303,24 +303,29 @@ Jobs must:
 
 ## Benchmarks
 
-Performance comparison with BullMQ measuring pure dequeue overhead (jobs are no-ops). Results are averaged over 3 runs:
+Performance comparison with BullMQ using realistic jobs (5ms simulated work per job):
 
 | Jobs | Concurrency | @boringnode/queue | BullMQ | Diff         |
 |------|-------------|-------------------|--------|--------------|
-| 100  | 1           | 15ms              | 23ms   | 34.8% faster |
-| 100  | 5           | 24ms              | 18ms   | 33.3% slower |
-| 100  | 10          | 16ms              | 17ms   | ~same        |
-| 1000 | 1           | 171ms             | 135ms  | 26.7% slower |
-| 1000 | 5           | 106ms             | 55ms   | 92.7% slower |
-| 1000 | 10          | 88ms              | 57ms   | 54.4% slower |
-| 5000 | 1           | 495ms             | 615ms  | 19.5% faster |
-| 5000 | 5           | 342ms             | 253ms  | 35.2% slower |
-| 5000 | 10          | 456ms             | 234ms  | 94.9% slower |
-
-These numbers represent queue overhead only. With real job execution, the difference becomes negligible.
+| 100  | 1           | 562ms             | 596ms  | 5.7% faster  |
+| 100  | 5           | 116ms             | 117ms  | ~same        |
+| 100  | 10          | 62ms              | 62ms   | ~same        |
+| 500  | 1           | 2728ms            | 2798ms | 2.5% faster  |
+| 500  | 5           | 565ms             | 565ms  | ~same        |
+| 500  | 10          | 287ms             | 288ms  | ~same        |
+| 1000 | 1           | 5450ms            | 5547ms | 1.7% faster  |
+| 1000 | 5           | 1096ms            | 1116ms | 1.8% faster  |
+| 1000 | 10          | 565ms             | 579ms  | 2.4% faster  |
 
 Run benchmarks yourself:
 
 ```bash
+# Realistic benchmark (5ms job duration)
+npm run benchmark -- --realistic
+
+# Pure dequeue overhead (no-op jobs)
 npm run benchmark
+
+# Custom job duration
+npm run benchmark -- --duration=10
 ```
