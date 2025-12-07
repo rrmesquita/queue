@@ -1,3 +1,4 @@
+import { setTimeout } from 'node:timers/promises'
 import { Redis } from 'ioredis'
 import { Worker } from '#src/worker'
 import { Job } from '#src/job'
@@ -6,12 +7,15 @@ import { redis } from '#drivers/redis_adapter'
 import { barrier, type BenchmarkOptions, type BenchmarkResult } from '../helpers.ts'
 import type { QueueManagerConfig } from '#types/main'
 
-// Barrier callback - set before each benchmark run
+// Barrier callback and job duration - set before each benchmark run
 let onJobComplete: (() => boolean) | null = null
+let jobDuration: number = 0
 
 class BenchmarkJob extends Job<{ i: number }> {
   async execute() {
-    // No-op - just measure queue overhead
+    if (jobDuration > 0) {
+      await setTimeout(jobDuration)
+    }
     onJobComplete?.()
   }
 }
@@ -37,9 +41,10 @@ export async function run(options: BenchmarkOptions): Promise<BenchmarkResult> {
 
   await clearQueue(host, port)
 
-  // Setup barrier for completion tracking
+  // Setup barrier for completion tracking and job duration
   const { done, next } = barrier(options.numRuns)
   onJobComplete = next
+  jobDuration = options.jobDuration ?? 0
 
   const config: QueueManagerConfig = {
     default: 'redis',

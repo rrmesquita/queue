@@ -5,6 +5,7 @@ import { run as runBullMQ } from './bullmq/harness.ts'
 interface BenchmarkConfig {
   numRuns: number[]
   concurrency: number[]
+  jobDuration?: number // Simulated work duration in ms
 }
 
 const defaultConfig: BenchmarkConfig = {
@@ -17,12 +18,15 @@ async function runBenchmarks(config: BenchmarkConfig = defaultConfig) {
 
   console.log('='.repeat(60))
   console.log('Queue Benchmark Suite')
+  if (config.jobDuration) {
+    console.log(`Job duration: ${config.jobDuration}ms`)
+  }
   console.log('='.repeat(60))
   console.log()
 
   for (const numRuns of config.numRuns) {
     for (const concurrency of config.concurrency) {
-      const options: BenchmarkOptions = { numRuns, concurrency }
+      const options: BenchmarkOptions = { numRuns, concurrency, jobDuration: config.jobDuration }
 
       console.log(`\nBenchmark: ${numRuns} jobs, concurrency ${concurrency}`)
       console.log('-'.repeat(50))
@@ -112,6 +116,19 @@ if (args.includes('--quick')) {
     numRuns: [100, 500, 1000, 2500, 5000, 10000],
     concurrency: [1, 5, 10, 25, 50],
   }
+} else if (args.includes('--realistic')) {
+  // Simulate real jobs with 5ms work duration
+  config = {
+    numRuns: [100, 500, 1000],
+    concurrency: [1, 5, 10],
+    jobDuration: 5,
+  }
+}
+
+// Allow --duration=N to set job duration
+const durationArg = args.find((arg) => arg.startsWith('--duration='))
+if (durationArg) {
+  config.jobDuration = Number.parseInt(durationArg.split('=')[1], 10)
 }
 
 runBenchmarks(config)

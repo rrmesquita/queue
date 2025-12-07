@@ -1,3 +1,4 @@
+import { setTimeout } from 'node:timers/promises'
 import { Queue, Worker, type ConnectionOptions } from 'bullmq'
 import { Redis } from 'ioredis'
 import { barrier, type BenchmarkOptions, type BenchmarkResult } from '../helpers.ts'
@@ -36,10 +37,13 @@ export async function run(options: BenchmarkOptions): Promise<BenchmarkResult> {
   const startTime = Date.now()
 
   // Create worker AFTER all jobs are enqueued (pure dequeue test)
+  const jobDuration = options.jobDuration ?? 0
   const worker = new Worker(
     'benchmark',
     async () => {
-      // No-op - just measure queue overhead
+      if (jobDuration > 0) {
+        await setTimeout(jobDuration)
+      }
       next()
     },
     {

@@ -37,6 +37,7 @@ export function barrier(n: number = 1) {
 export interface BenchmarkOptions {
   numRuns: number
   concurrency: number
+  jobDuration?: number // Simulated work duration in ms
 }
 
 export interface BenchmarkResult {
