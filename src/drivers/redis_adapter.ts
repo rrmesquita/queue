@@ -123,10 +123,20 @@ const RETRY_JOB_SCRIPT = `
   return 1
 `
 
+/**
+ * Create a new Redis adapter factory.
+ * Accepts either a Redis instance or Redis options.
+ *
+ * When passing options, the adapter will create and manage
+ * the connection lifecycle (closing it on destroy).
+ *
+ * When passing a Redis instance, the caller is responsible for
+ * managing the connection lifecycle.
+ */
 export function redis(config?: RedisConfig) {
   return () => {
     if (config instanceof Redis) {
-      return new RedisAdapter(config)
+      return new RedisAdapter(config, false)
     }
 
     const options: RedisOptions = {
@@ -138,16 +148,18 @@ export function redis(config?: RedisConfig) {
     }
 
     const connection = new Redis(options)
-    return new RedisAdapter(connection)
+    return new RedisAdapter(connection, true)
   }
 }
 
 export class RedisAdapter implements Adapter {
   readonly #connection: Redis
+  readonly #ownsConnection: boolean
   #workerId: string = ''
 
-  constructor(connection: Redis) {
+  constructor(connection: Redis, ownsConnection: boolean = false) {
     this.#connection = connection
+    this.#ownsConnection = ownsConnection
   }
 
   setWorkerId(workerId: string): void {
@@ -155,7 +167,9 @@ export class RedisAdapter implements Adapter {
   }
 
   async destroy(): Promise<void> {
-    await this.#connection.quit()
+    if (this.#ownsConnection) {
+      await this.#connection.quit()
+    }
   }
 
   pop(): Promise<AcquiredJob | null> {
