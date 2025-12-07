@@ -623,4 +623,48 @@ test.group('Worker', () => {
 
     assert.isBelow(elapsed, 150)
   })
+
+  test('should wait for running jobs to complete before stopping', async ({ assert, cleanup }) => {
+    let jobCompleted = false
+
+    class SlowJob extends Job {
+      async execute() {
+        await setTimeout(100)
+        jobCompleted = true
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('SlowJob', SlowJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+    })
+
+    await sharedAdapter.push({
+      id: 'slow-job',
+      name: 'SlowJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    // Start the job - it's now running in the pool
+    await worker.processCycle(['default'])
+
+    // Call stop while job is still running (job takes 100ms)
+    await worker.stop()
+
+    // Job should have completed before stop() returned
+    assert.isTrue(jobCompleted, 'Job should have completed before worker stopped')
+  })
 })

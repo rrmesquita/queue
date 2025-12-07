@@ -10,6 +10,7 @@ import type { LeaseManager } from '#contracts/lease_manager'
 import type { AcquiredJob, JobData, QueueManagerConfig, WorkerCycle } from '#types/main'
 import { Locator } from '#src/locator'
 import type { JobOptions } from '#types/main'
+import type { Job } from '#src/job'
 
 export class Worker {
   readonly #id: string
@@ -19,6 +20,7 @@ export class Worker {
   #running = false
   #initialized = false
   #generator?: AsyncGenerator<WorkerCycle, void, unknown>
+  #pool?: JobPool
 
   get id() {
     return this.#id
@@ -91,6 +93,11 @@ export class Worker {
 
     this.#running = false
 
+    if (this.#pool) {
+      debug('worker %s: waiting for %d running jobs to complete', this.#id, this.#pool.size)
+      await this.#pool.drain()
+    }
+
     if (this.#leaseManager) {
       await this.#leaseManager.destroy()
     }
@@ -120,20 +127,19 @@ export class Worker {
   }
 
   async *process(queues: string[]): AsyncGenerator<WorkerCycle, void, unknown> {
-    const concurrency = this.#config.worker?.concurrency || 1
     const pollingInterval = parse(this.#config.worker?.pollingInterval || '2s')
-    const pool = new JobPool()
+    this.#pool = new JobPool()
 
     while (this.#running) {
       try {
-        yield* this.#fillPool(pool, queues, concurrency)
+        yield* this.#fillPool(queues)
 
-        if (pool.isEmpty()) {
+        if (this.#pool.isEmpty()) {
           yield { type: 'idle', suggestedDelay: pollingInterval }
           continue
         }
 
-        const completed = await pool.waitForNextCompletion()
+        const completed = await this.#pool.waitForNextCompletion()
         yield { type: 'completed', queue: completed.queue, job: completed.job }
       } catch (error) {
         yield { type: 'error', error: error as Error, suggestedDelay: parse('5s') }
@@ -141,18 +147,16 @@ export class Worker {
     }
   }
 
-  async *#fillPool(
-    pool: JobPool,
-    queues: string[],
-    concurrency: number
-  ): AsyncGenerator<WorkerCycle, void, unknown> {
-    while (pool.hasCapacity(concurrency)) {
+  async *#fillPool(queues: string[]): AsyncGenerator<WorkerCycle, void, unknown> {
+    const concurrency = this.#config.worker?.concurrency || 1
+
+    while (this.#pool!.hasCapacity(concurrency)) {
       const result = await this.#acquireNextJob(queues)
       if (!result) break
 
       const { job, queue } = result
       const promise = this.#execute(job, queue)
-      pool.add(job, queue, promise)
+      this.#pool!.add(job, queue, promise)
 
       yield { type: 'started', queue, job }
     }

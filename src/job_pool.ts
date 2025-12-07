@@ -42,4 +42,17 @@ export class JobPool {
 
     return completed
   }
+
+  async drain(): Promise<void> {
+    const promises = [...this.#activeJobs.values()].map(async ({ promise }) => {
+      try {
+        await promise
+      } catch {
+        // Errors are handled in Worker#execute
+      }
+    })
+
+    await Promise.all(promises)
+    this.#activeJobs.clear()
+  }
 }

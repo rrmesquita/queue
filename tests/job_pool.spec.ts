@@ -107,4 +107,31 @@ test.group('JobPool', () => {
 
     assert.equal(completed.job.id, 'failing')
   })
+
+  test('drain should wait for all jobs to complete', async ({ assert }) => {
+    const pool = new JobPool()
+    const completedJobs: string[] = []
+
+    pool.add(createJob('job-1'), 'default', setTimeout(50).then(() => { completedJobs.push('job-1') }))
+    pool.add(createJob('job-2'), 'default', setTimeout(30).then(() => { completedJobs.push('job-2') }))
+    pool.add(createJob('job-3'), 'default', setTimeout(10).then(() => { completedJobs.push('job-3') }))
+
+    assert.equal(pool.size, 3)
+
+    await pool.drain()
+
+    assert.equal(completedJobs.length, 3)
+    assert.isTrue(pool.isEmpty())
+  })
+
+  test('drain should handle errors gracefully', async ({ assert }) => {
+    const pool = new JobPool()
+
+    pool.add(createJob('success'), 'default', setTimeout(10))
+    pool.add(createJob('failing'), 'default', Promise.reject(new Error('Job failed')))
+
+    await pool.drain()
+
+    assert.isTrue(pool.isEmpty())
+  })
 })
