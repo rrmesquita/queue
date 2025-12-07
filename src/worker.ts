@@ -4,6 +4,7 @@ import debug from '#src/debug'
 import { parse } from '#src/utils'
 import * as errors from '#src/exceptions'
 import { QueueManager } from '#src/queue_manager'
+import { JobPool } from '#src/job_pool'
 import type { Adapter } from '#contracts/adapter'
 import type { LeaseManager } from '#contracts/lease_manager'
 import type { AcquiredJob, JobData, QueueManagerConfig, WorkerCycle } from '#types/main'
@@ -120,42 +121,40 @@ export class Worker {
 
   async *process(queues: string[]): AsyncGenerator<WorkerCycle, void, unknown> {
     const concurrency = this.#config.worker?.concurrency || 1
+    const pollingInterval = parse(this.#config.worker?.pollingInterval || '2s')
+    const pool = new JobPool()
 
-    runningLoop: while (this.#running) {
+    while (this.#running) {
       try {
-        for (const queue of queues) {
-          const jobs = await this.#acquireJobs(queue, concurrency)
+        yield* this.#fillPool(pool, queues, concurrency)
 
-          if (jobs.length > 0) {
-            // Yield started events for all jobs
-            for (const job of jobs) {
-              yield { type: 'started', queue, job }
-            }
-
-            // Execute all jobs in parallel
-            const results = await Promise.allSettled(jobs.map((job) => this.#execute(job, queue)))
-
-            // Yield completed events for all jobs
-            for (const job of jobs) {
-              yield { type: 'completed', queue, job: job }
-            }
-
-            // Check if any job failed
-            const hasError = results.some((r) => r.status === 'rejected')
-            if (hasError) {
-              const error = results.find((r) => r.status === 'rejected') as PromiseRejectedResult
-              yield { type: 'error', error: error.reason, suggestedDelay: parse('5s') }
-            }
-
-            continue runningLoop
-          }
+        if (pool.isEmpty()) {
+          yield { type: 'idle', suggestedDelay: pollingInterval }
+          continue
         }
 
-        const pollingInterval = parse(this.#config.worker?.pollingInterval || '2s')
-        yield { type: 'idle', suggestedDelay: pollingInterval }
+        const completed = await pool.waitForNextCompletion()
+        yield { type: 'completed', queue: completed.queue, job: completed.job }
       } catch (error) {
         yield { type: 'error', error: error as Error, suggestedDelay: parse('5s') }
       }
+    }
+  }
+
+  async *#fillPool(
+    pool: JobPool,
+    queues: string[],
+    concurrency: number
+  ): AsyncGenerator<WorkerCycle, void, unknown> {
+    while (pool.hasCapacity(concurrency)) {
+      const result = await this.#acquireNextJob(queues)
+      if (!result) break
+
+      const { job, queue } = result
+      const promise = this.#execute(job, queue)
+      pool.add(job, queue, promise)
+
+      yield { type: 'started', queue, job }
     }
   }
 
@@ -221,15 +220,12 @@ export class Worker {
     }
   }
 
-  async #acquireJobs(queue: string, count: number): Promise<AcquiredJob[]> {
-    const jobs: AcquiredJob[] = []
-
-    // Try to acquire up to `count` jobs
-    for (let i = 0; i < count; i++) {
+  async #acquireNextJob(queues: string[]): Promise<{ job: AcquiredJob; queue: string } | null> {
+    for (const queue of queues) {
       const job = await this.#adapter.popFrom(queue)
 
       if (!job) {
-        break
+        continue
       }
 
       debug('worker %s: attempting to acquire lease for job %s', this.#id, job.id)
@@ -239,27 +235,29 @@ export class Worker {
 
         if (!acquired) {
           debug('worker %s: failed to acquire lease for job %s', this.#id, job.id)
-
           await this.#adapter.pushOn(queue, job)
           continue
         }
 
         debug('worker %s: acquired lease for job %s', this.#id, job.id)
 
-        jobs.push({
-          ...job,
-          _lease: {
-            commit: () => this.#commitJob(job.id),
-            rollback: () => this.#rollbackJob(job, queue),
+        return {
+          job: {
+            ...job,
+            _lease: {
+              commit: () => this.#commitJob(job.id),
+              rollback: () => this.#rollbackJob(job, queue),
+            },
           },
-        })
+          queue,
+        }
       } catch (error) {
         console.log(error)
         throw error
       }
     }
 
-    return jobs
+    return null
   }
 
   #commitJob(jobId: string) {

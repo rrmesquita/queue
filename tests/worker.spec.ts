@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import { setTimeout } from 'node:timers/promises'
 import { Worker } from '#src/worker'
 import { memory } from './_mocks/memory_adapter.ts'
 import { ChaosAdapter } from './_mocks/chaos_adapter.ts'
@@ -71,6 +72,10 @@ test.group('Worker', () => {
   })
 
   test('should yield job when a job is available', async ({ assert, cleanup }) => {
+    class TestJob extends Job {
+      async execute() {}
+    }
+
     const sharedAdapter = memory()()
 
     const localConfig = {
@@ -79,15 +84,18 @@ test.group('Worker', () => {
       locations: ['./jobs/**/*'],
     }
 
+    Locator.register('TestJob', TestJob)
+
     const worker = new Worker(localConfig)
 
     cleanup(async () => {
+      Locator.clear()
       await worker.stop()
     })
 
     await sharedAdapter.push({
       id: 'test-job-1',
-      name: 'SendEmailJob',
+      name: 'TestJob',
       payload: { to: 'romain.lanz@example.com' },
       attempts: 0,
       priority: 0,
@@ -103,7 +111,7 @@ test.group('Worker', () => {
     // @ts-ignore
     assert.equal(cycle.job.id, 'test-job-1')
     // @ts-ignore
-    assert.equal(cycle.job.name, 'SendEmailJob')
+    assert.equal(cycle.job.name, 'TestJob')
   })
 
   test('should execute job when a job is available', async ({ assert, cleanup }) => {
@@ -303,5 +311,112 @@ test.group('Worker', () => {
 
     // @ts-ignore
     assert.equal(cycle.type, 'completed')
+  })
+
+  test('should maintain concurrency when one job is slow', async ({ assert, cleanup }) => {
+    const executionOrder: string[] = []
+    const startTimes: Record<string, number> = {}
+
+    class SlowJob extends Job {
+      async execute() {
+        startTimes[this.payload.id] = Date.now()
+        await setTimeout(200)
+        executionOrder.push(this.payload.id)
+      }
+    }
+
+    class FastJob extends Job {
+      async execute() {
+        startTimes[this.payload.id] = Date.now()
+        await setTimeout(10)
+        executionOrder.push(this.payload.id)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      worker: {
+        concurrency: 2,
+      },
+    }
+
+    Locator.register('SlowJob', SlowJob)
+    Locator.register('FastJob', FastJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    // Push jobs: 1 slow job + 3 fast jobs
+    await sharedAdapter.push({
+      id: 'job-1',
+      name: 'SlowJob',
+      payload: { id: 'slow-1' },
+      attempts: 0,
+      priority: 0,
+    })
+
+    await sharedAdapter.push({
+      id: 'job-2',
+      name: 'FastJob',
+      payload: { id: 'fast-1' },
+      attempts: 0,
+      priority: 0,
+    })
+
+    await sharedAdapter.push({
+      id: 'job-3',
+      name: 'FastJob',
+      payload: { id: 'fast-2' },
+      attempts: 0,
+      priority: 0,
+    })
+
+    await sharedAdapter.push({
+      id: 'job-4',
+      name: 'FastJob',
+      payload: { id: 'fast-3' },
+      attempts: 0,
+      priority: 0,
+    })
+
+    // Start the worker and let it process all jobs
+    const startTime = Date.now()
+
+    // Process until idle (all jobs done)
+    let cycles = 0
+    const maxCycles = 20
+    while (cycles < maxCycles) {
+      const cycle = await worker.processCycle(['default'])
+      cycles++
+
+      if (cycle?.type === 'idle') {
+        break
+      }
+    }
+
+    const totalTime = Date.now() - startTime
+
+    // All 4 jobs should have executed
+    assert.equal(executionOrder.length, 4)
+
+    // With proper concurrency, fast jobs should complete before slow job
+    // fast-1 starts with slow-1, completes quickly, then fast-2 starts, etc.
+    // So execution order should be: fast-1, fast-2, fast-3, slow-1
+    // (fast jobs complete before the slow job)
+    assert.equal(executionOrder[executionOrder.length - 1], 'slow-1')
+
+    // Total time should be around 200ms (slow job time) + overhead
+    // NOT 200ms + 3*10ms in sequence
+    // If batch processing was used, it would take ~200ms per batch
+    // With proper pool, all fast jobs run while slow job runs
+    assert.isBelow(totalTime, 350, 'Total time should be close to slow job time, not cumulative')
   })
 })
