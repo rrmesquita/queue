@@ -173,6 +173,7 @@ export class Worker {
       JobClass = Locator.getOrThrow(job.name)
     } catch (error) {
       debug('worker %s: job class %s not found for job %s', this.#id, job.name, job.id)
+      await job._lease.commit()
       throw error
     }
 

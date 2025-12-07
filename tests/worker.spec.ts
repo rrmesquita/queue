@@ -716,4 +716,42 @@ test.group('Worker', () => {
       'Lease should be released after permanent failure'
     )
   })
+
+  test('should release lease when job class is not found', async ({ assert, cleanup }) => {
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    // Do NOT register the job class - this simulates a missing job class
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      MemoryLeaseManager.leases.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'unknown-job',
+      name: 'UnknownJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    // Process the job - it will fail because the job class is not registered
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (with error)
+
+    // Lease should be released even though job class was not found
+    assert.isFalse(
+      MemoryLeaseManager.leases.has('unknown-job'),
+      'Lease should be released when job class is not found'
+    )
+  })
 })
