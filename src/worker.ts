@@ -296,7 +296,7 @@ export class Worker {
           queue,
         }
       } catch (error) {
-        console.log(error)
+        debug('worker %s: error acquiring lease for job %s: %O', this.#id, job.id, error)
         throw error
       }
     }
