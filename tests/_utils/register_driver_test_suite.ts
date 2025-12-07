@@ -72,7 +72,9 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.completeJob(job!.id, 'test-queue')
 
-    // Job should not reappear
+    // Retry should have no effect since job is no longer active
+    await adapter.retryJob(job!.id, 'test-queue')
+
     const nextJob = await adapter.popFrom('test-queue')
     assert.isNull(nextJob)
   })
@@ -138,7 +140,9 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.failJob(job!.id, 'test-queue', new Error('Test error'))
 
-    // Job should not reappear
+    // Retry should have no effect since job is no longer active
+    await adapter.retryJob(job!.id, 'test-queue')
+
     const nextJob = await adapter.popFrom('test-queue')
     assert.isNull(nextJob)
   })
