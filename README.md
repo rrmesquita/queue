@@ -10,7 +10,7 @@ npm install @boringnode/queue
 
 ## Features
 
-- **Multiple Queue Adapters**: Support for Redis (production) and Sync (testing/development)
+- **Multiple Queue Adapters**: Support for Redis, Knex (PostgreSQL, MySQL, SQLite), and Sync
 - **Type-Safe Jobs**: Define jobs as TypeScript classes with typed payloads
 - **Delayed Jobs**: Schedule jobs to run after a specific delay
 - **Multiple Queues**: Organize jobs into different queues for better organization
@@ -171,6 +171,38 @@ For testing and development:
 import { sync } from '@boringnode/queue/drivers/sync_adapter'
 
 const adapter = sync()
+```
+
+### Knex Adapter
+
+For SQL databases (PostgreSQL, MySQL, SQLite) using Knex:
+
+```typescript
+import { knex } from '@boringnode/queue/drivers/knex_adapter'
+
+// With configuration (adapter manages connection lifecycle)
+const adapter = knex({
+  client: 'pg',
+  connection: {
+    host: 'localhost',
+    port: 5432,
+    user: 'postgres',
+    password: 'postgres',
+    database: 'myapp',
+  },
+})
+
+// Or with an existing Knex instance (you manage connection lifecycle)
+import Knex from 'knex'
+
+const connection = Knex({ client: 'pg', connection: '...' })
+const adapter = knex(connection)
+```
+
+The adapter automatically creates the `queue_jobs` table on first use. You can customize the table name:
+
+```typescript
+const adapter = knex(config, 'custom_jobs_table')
 ```
 
 ## Worker Configuration
