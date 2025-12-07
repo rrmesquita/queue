@@ -139,10 +139,16 @@ export class Worker {
 
   async *#fillPool(queues: string[]): AsyncGenerator<WorkerCycle, void, unknown> {
     const concurrency = this.#config.worker?.concurrency || 1
+    const slotsAvailable = concurrency - this.#pool!.size
 
-    while (this.#pool!.hasCapacity(concurrency)) {
-      const result = await this.#acquireNextJob(queues)
-      if (!result) break
+    if (slotsAvailable <= 0) return
+
+    const popPromises = Array.from({ length: slotsAvailable }, () => this.#acquireNextJob(queues))
+
+    const results = await Promise.all(popPromises)
+
+    for (const result of results) {
+      if (!result) continue
 
       const { job, queue } = result
       const promise = this.#execute(job, queue)
