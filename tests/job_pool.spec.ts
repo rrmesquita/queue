@@ -112,9 +112,27 @@ test.group('JobPool', () => {
     const pool = new JobPool()
     const completedJobs: string[] = []
 
-    pool.add(createJob('job-1'), 'default', setTimeout(50).then(() => { completedJobs.push('job-1') }))
-    pool.add(createJob('job-2'), 'default', setTimeout(30).then(() => { completedJobs.push('job-2') }))
-    pool.add(createJob('job-3'), 'default', setTimeout(10).then(() => { completedJobs.push('job-3') }))
+    pool.add(
+      createJob('job-1'),
+      'default',
+      setTimeout(50).then(() => {
+        completedJobs.push('job-1')
+      })
+    )
+    pool.add(
+      createJob('job-2'),
+      'default',
+      setTimeout(30).then(() => {
+        completedJobs.push('job-2')
+      })
+    )
+    pool.add(
+      createJob('job-3'),
+      'default',
+      setTimeout(10).then(() => {
+        completedJobs.push('job-3')
+      })
+    )
 
     assert.equal(pool.size, 3)
 
