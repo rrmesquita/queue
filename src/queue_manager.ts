@@ -7,6 +7,7 @@ import type { AdapterFactory, QueueConfig, QueueManagerConfig, RetryConfig } fro
 class QueueManagerSingleton {
   #defaultAdapter!: string
   #adapters: Record<string, AdapterFactory> = {}
+  #adapterInstances: Map<string, Adapter> = new Map()
   #globalRetryConfig?: RetryConfig
   #queueConfigs: Map<string, QueueConfig> = new Map()
 
@@ -14,6 +15,8 @@ class QueueManagerSingleton {
     debug('initializing queue manager with config: %O', config)
 
     this.#validateConfig(config)
+
+    this.#adapterInstances.clear()
 
     this.#defaultAdapter = config.default
     this.#adapters = config.adapters
@@ -35,16 +38,24 @@ class QueueManagerSingleton {
       adapter = this.#defaultAdapter
     }
 
-    const adapterInstance = this.#adapters[adapter]
+    // Return cached instance if exists
+    const cached = this.#adapterInstances.get(adapter)
+    if (cached) {
+      return cached
+    }
 
-    if (!adapterInstance) {
+    const adapterFactory = this.#adapters[adapter]
+
+    if (!adapterFactory) {
       throw new errors.E_CONFIGURATION_ERROR([`Adapter "${adapter}" is not registered`])
     }
 
     debug('using adapter "%s"', adapter)
 
     try {
-      return adapterInstance()
+      const instance = adapterFactory()
+      this.#adapterInstances.set(adapter, instance)
+      return instance
     } catch (error) {
       // TODO: Improve error handling
       throw new Error()
@@ -98,10 +109,11 @@ class QueueManagerSingleton {
   }
 
   async destroy() {
-    for (const adapterName in this.#adapters) {
-      const adapter = this.#adapters[adapterName]()
+    for (const [name, adapter] of this.#adapterInstances) {
+      debug('destroying adapter "%s"', name)
       await adapter.destroy()
     }
+    this.#adapterInstances.clear()
   }
 }
 
