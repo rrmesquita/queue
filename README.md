@@ -16,6 +16,9 @@ npm install @boringnode/queue
 - **Multiple Queues**: Organize jobs into different queues for better organization
 - **Worker Management**: Process jobs with configurable concurrency
 - **Auto-Discovery**: Automatically discover and register jobs from specified locations
+- **Priority Queues**: Process high-priority jobs first
+- **Retry with Backoff**: Automatic retries with exponential, linear, or fixed backoff strategies
+- **Job Timeout**: Automatically fail or retry jobs that exceed a time limit
 
 ## Quick Start
 
@@ -134,6 +137,10 @@ Configure individual jobs with the `options` property:
 static options: JobOptions = {
   queue: 'email',       // Queue name (default: 'default')
   adapter: 'redis',     // Override default adapter
+  priority: 1,          // Lower number = higher priority (default: 5)
+  maxRetries: 3,        // Maximum retry attempts
+  timeout: '30s',       // Job timeout duration
+  failOnTimeout: true,  // Fail permanently on timeout (default: false, will retry)
 }
 ```
 
@@ -192,6 +199,87 @@ await SendEmailJob.dispatch(payload).in('30s')  // 30 seconds
 await SendEmailJob.dispatch(payload).in('5m')   // 5 minutes
 await SendEmailJob.dispatch(payload).in('2h')   // 2 hours
 await SendEmailJob.dispatch(payload).in('1d')   // 1 day
+```
+
+## Priority
+
+Jobs with lower priority numbers are processed first:
+
+```typescript
+export default class UrgentJob extends Job<Payload> {
+  static readonly jobName = 'UrgentJob'
+
+  static options: JobOptions = {
+    priority: 1,  // Processed before default priority (5)
+  }
+
+  async execute(): Promise<void> {
+    // ...
+  }
+}
+```
+
+## Retry and Backoff
+
+Configure automatic retries with backoff strategies:
+
+```typescript
+import { exponentialBackoff, linearBackoff, fixedBackoff } from '@boringnode/queue'
+
+export default class ReliableJob extends Job<Payload> {
+  static readonly jobName = 'ReliableJob'
+
+  static options: JobOptions = {
+    maxRetries: 5,
+    retry: {
+      backoff: () => exponentialBackoff({
+        baseDelay: '1s',
+        maxDelay: '1m',
+        multiplier: 2,
+        jitter: true,
+      }),
+    },
+  }
+
+  async execute(): Promise<void> {
+    // ...
+  }
+}
+```
+
+Available backoff strategies:
+
+- `exponentialBackoff({ baseDelay, maxDelay, multiplier, jitter })` - Exponential increase
+- `linearBackoff({ baseDelay, maxDelay, multiplier })` - Linear increase
+- `fixedBackoff({ baseDelay, jitter })` - Fixed delay between retries
+
+## Job Timeout
+
+Set a maximum execution time for jobs:
+
+```typescript
+export default class LimitedJob extends Job<Payload> {
+  static readonly jobName = 'LimitedJob'
+
+  static options: JobOptions = {
+    timeout: '30s',       // Maximum execution time
+    failOnTimeout: false, // Retry on timeout (default)
+  }
+
+  async execute(): Promise<void> {
+    // Long running operation...
+  }
+}
+```
+
+You can also set a global timeout in the worker configuration:
+
+```typescript
+const config = {
+  worker: {
+    timeout: '1m',  // Default timeout for all jobs
+  },
+}
 ```
 
 ## Job Discovery
