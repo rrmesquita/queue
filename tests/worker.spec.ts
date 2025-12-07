@@ -570,7 +570,10 @@ test.group('Worker', () => {
     assert.equal(cycle.type, 'idle')
   })
 
-  test('should use global worker timeout when job timeout is not set', async ({ assert, cleanup }) => {
+  test('should use global worker timeout when job timeout is not set', async ({
+    assert,
+    cleanup,
+  }) => {
     assert.plan(2)
 
     class SlowJob extends Job {
