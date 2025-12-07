@@ -174,14 +174,23 @@ export class Worker {
 
     const instance = new JobClass(job.payload)
     const options: JobOptions = JobClass.options || {}
+    const timeout = this.#getJobTimeout(options)
 
     try {
-      await instance.execute()
+      await this.#executeWithTimeout(instance, timeout)
       await job._lease.commit()
 
       const duration = (performance.now() - startTime).toFixed(2)
       debug('worker %s: successfully executed job %s in %dms', this.#id, job.id, duration)
     } catch (e) {
+      const isTimeout = e instanceof errors.E_JOB_TIMEOUT
+
+      if (isTimeout && options.failOnTimeout) {
+        debug('worker %s: job %s timed out and failOnTimeout is set', this.#id, job.id)
+        await instance.failed(e as Error)
+        return
+      }
+
       const mergedConfig = QueueManager.getMergedRetryConfig(queue, options.retry)
 
       if (typeof mergedConfig.maxRetries === 'undefined' || mergedConfig.maxRetries <= 0) {
@@ -218,6 +227,30 @@ export class Worker {
 
       await this.#rollbackJob(job, queue)
     }
+  }
+
+  #getJobTimeout(options: JobOptions): number | undefined {
+    if (options.timeout !== undefined) {
+      return parse(options.timeout)
+    }
+
+    if (this.#config.worker?.timeout !== undefined) {
+      return parse(this.#config.worker.timeout)
+    }
+
+    return undefined
+  }
+
+  async #executeWithTimeout(instance: Job, timeout?: number): Promise<void> {
+    if (!timeout) {
+      return instance.execute()
+    }
+
+    const timeoutPromise = setTimeout(timeout).then(() => {
+      throw new errors.E_JOB_TIMEOUT([instance.constructor.name, timeout])
+    })
+
+    await Promise.race([instance.execute(), timeoutPromise])
   }
 
   async #acquireNextJob(queues: string[]): Promise<{ job: AcquiredJob; queue: string } | null> {

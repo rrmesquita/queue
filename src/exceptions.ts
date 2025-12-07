@@ -39,3 +39,8 @@ export const E_JOB_MAX_ATTEMPTS_REACHED = createError<[jobName: string]>(
   'The job "%s" has reached the maximum number of retry attempts',
   'E_JOB_MAX_ATTEMPTS_REACHED'
 )
+
+export const E_JOB_TIMEOUT = createError<[jobName: string, timeout: number]>(
+  'The job "%s" has exceeded the timeout of %dms',
+  'E_JOB_TIMEOUT'
+)

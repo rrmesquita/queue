@@ -419,4 +419,205 @@ test.group('Worker', () => {
     // With proper pool, all fast jobs run while slow job runs
     assert.isBelow(totalTime, 350, 'Total time should be close to slow job time, not cumulative')
   })
+
+  test('should timeout job that exceeds timeout duration', async ({ assert, cleanup }) => {
+    assert.plan(2)
+
+    class SlowJob extends Job {
+      static options = { timeout: 50 }
+
+      async execute() {
+        await setTimeout(200)
+      }
+
+      async failed(error: Error) {
+        assert.instanceOf(error, errors.E_JOB_TIMEOUT)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('SlowJob', SlowJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'timeout-job',
+      name: 'SlowJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    const startTime = Date.now()
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (timeout)
+
+    const elapsed = Date.now() - startTime
+
+    assert.isBelow(elapsed, 150, 'Job should be killed before completing')
+  })
+
+  test('should retry timed out job when failOnTimeout is false', async ({ assert, cleanup }) => {
+    let attempts = 0
+
+    class SlowJob extends Job {
+      static options = { timeout: 50, retry: { maxRetries: 2 } }
+
+      async execute() {
+        attempts++
+        await setTimeout(200)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('SlowJob', SlowJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'timeout-retry-job',
+      name: 'SlowJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    // First attempt
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (timeout)
+
+    // Second attempt (retried)
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (timeout)
+
+    assert.equal(attempts, 2)
+  })
+
+  test('should not retry timed out job when failOnTimeout is true', async ({ assert, cleanup }) => {
+    assert.plan(2)
+
+    let attempts = 0
+
+    class SlowJob extends Job {
+      static options = { timeout: 50, failOnTimeout: true, retry: { maxRetries: 3 } }
+
+      async execute() {
+        attempts++
+        await setTimeout(200)
+      }
+
+      async failed(error: Error) {
+        assert.instanceOf(error, errors.E_JOB_TIMEOUT)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('SlowJob', SlowJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'timeout-fail-job',
+      name: 'SlowJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (timeout, failed)
+
+    // Should not retry
+    const cycle = await worker.processCycle(['default'])
+    // @ts-ignore
+    assert.equal(cycle.type, 'idle')
+  })
+
+  test('should use global worker timeout when job timeout is not set', async ({ assert, cleanup }) => {
+    assert.plan(2)
+
+    class SlowJob extends Job {
+      async execute() {
+        await setTimeout(200)
+      }
+
+      async failed(error: Error) {
+        assert.instanceOf(error, errors.E_JOB_TIMEOUT)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      worker: {
+        timeout: 50,
+      },
+    }
+
+    Locator.register('SlowJob', SlowJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'global-timeout-job',
+      name: 'SlowJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    const startTime = Date.now()
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (timeout)
+
+    const elapsed = Date.now() - startTime
+
+    assert.isBelow(elapsed, 150)
+  })
 })

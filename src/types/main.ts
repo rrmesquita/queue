@@ -26,6 +26,8 @@ export interface JobOptions {
   maxRetries?: number
   priority?: number
   retry?: RetryConfig
+  timeout?: Duration
+  failOnTimeout?: boolean
 }
 
 export type JobClass<T extends Job = Job> = new (payload: any) => T
@@ -61,6 +63,7 @@ export interface WorkerConfig {
   pollingInterval?: Duration
   leaseTimeout?: Duration
   renewalInterval?: Duration
+  timeout?: Duration
 }
 
 export type WorkerCycle =
