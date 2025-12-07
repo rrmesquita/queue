@@ -54,6 +54,8 @@ export function redis(config?: RedisConfig) {
 
 export class RedisAdapter implements Adapter {
   readonly #connection: Redis
+  #lastDelayedCheck: Map<string, number> = new Map()
+  #delayedCheckInterval = 100 // Check delayed jobs every 100ms max
 
   constructor(connection: Redis) {
     this.#connection = connection
@@ -72,8 +74,8 @@ export class RedisAdapter implements Adapter {
   }
 
   async popFrom(queue: string): Promise<JobData | null> {
-    // First, move any ready delayed jobs to the regular queue
-    await this.#processDelayedJobs(queue)
+    // Check delayed jobs periodically, not on every pop
+    await this.#maybeProcessDelayedJobs(queue)
 
     // Pop from priority queue (sorted set) - highest priority (lowest score) first
     const queueContent = await this.#connection.zpopmin(`${redisKey}::${queue}`)
@@ -83,6 +85,16 @@ export class RedisAdapter implements Adapter {
     }
 
     return null
+  }
+
+  async #maybeProcessDelayedJobs(queue: string): Promise<void> {
+    const now = Date.now()
+    const lastCheck = this.#lastDelayedCheck.get(queue) || 0
+
+    if (now - lastCheck >= this.#delayedCheckInterval) {
+      this.#lastDelayedCheck.set(queue, now)
+      await this.#processDelayedJobs(queue)
+    }
   }
 
   push(jobData: JobData): Promise<void> {
