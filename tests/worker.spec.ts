@@ -754,4 +754,49 @@ test.group('Worker', () => {
       'Lease should be released when job class is not found'
     )
   })
+
+  test('should release lease when job constructor throws', async ({ assert, cleanup }) => {
+    class BrokenJob extends Job {
+      constructor(payload: any) {
+        super(payload)
+        throw new Error('Constructor failed')
+      }
+
+      async execute() {}
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('BrokenJob', BrokenJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      MemoryLeaseManager.leases.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'broken-job',
+      name: 'BrokenJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (with error)
+
+    assert.isFalse(
+      MemoryLeaseManager.leases.has('broken-job'),
+      'Lease should be released when constructor throws'
+    )
+  })
 })

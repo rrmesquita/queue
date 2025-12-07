@@ -30,7 +30,7 @@ export interface JobOptions {
   failOnTimeout?: boolean
 }
 
-export type JobClass<T extends Job = Job> = new (payload: any) => T
+export type JobClass<T extends Job = Job> = (new (payload: any) => T) & { options?: JobOptions }
 
 export interface RetryConfig {
   maxRetries?: number

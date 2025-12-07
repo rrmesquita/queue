@@ -167,19 +167,7 @@ export class Worker {
 
     debug('worker %s: executing job %s (%s)', this.#id, job.id, job.name)
 
-    let JobClass: any
-
-    try {
-      JobClass = Locator.getOrThrow(job.name)
-    } catch (error) {
-      debug('worker %s: job class %s not found for job %s', this.#id, job.name, job.id)
-      await job._lease.commit()
-      throw error
-    }
-
-    const instance = new JobClass(job.payload)
-    const options: JobOptions = JobClass.options || {}
-    const timeout = this.#getJobTimeout(options)
+    const { instance, options, timeout } = await this.#initJob(job)
 
     try {
       await this.#executeWithTimeout(instance, timeout)
@@ -193,7 +181,7 @@ export class Worker {
       if (isTimeout && options.failOnTimeout) {
         debug('worker %s: job %s timed out and failOnTimeout is set', this.#id, job.id)
         await job._lease.commit()
-        await instance.failed(e as Error)
+        await instance.failed?.(e as Error)
         return
       }
 
@@ -202,7 +190,7 @@ export class Worker {
       if (typeof mergedConfig.maxRetries === 'undefined' || mergedConfig.maxRetries <= 0) {
         debug('worker %s: job %s has no retries configured, marking as failed', this.#id, job.id)
         await job._lease.commit()
-        await instance.failed(e as Error)
+        await instance.failed?.(e as Error)
         return
       }
 
@@ -215,7 +203,7 @@ export class Worker {
         )
         await job._lease.commit()
         const exception = new errors.E_JOB_MAX_ATTEMPTS_REACHED([job.name])
-        await instance.failed(exception)
+        await instance.failed?.(exception)
 
         return
       }
@@ -232,6 +220,23 @@ export class Worker {
       }
 
       await this.#rollbackJob(job, queue)
+    }
+  }
+
+  async #initJob(
+    job: AcquiredJob
+  ): Promise<{ instance: Job; options: JobOptions; timeout: number | undefined }> {
+    try {
+      const JobClass = Locator.getOrThrow(job.name)
+      const instance = new JobClass(job.payload)
+      const options = JobClass.options || {}
+      const timeout = this.#getJobTimeout(options)
+
+      return { instance, options, timeout }
+    } catch (error) {
+      debug('worker %s: failed to initialize job %s (%s)', this.#id, job.id, job.name)
+      await job._lease.commit()
+      throw error
     }
   }
 
