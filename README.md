@@ -316,6 +316,9 @@ Performance comparison with BullMQ using realistic jobs (5ms simulated work per 
 | 1000 | 1           | 5450ms            | 5547ms | 1.7% faster  |
 | 1000 | 5           | 1096ms            | 1116ms | 1.8% faster  |
 | 1000 | 10          | 565ms             | 579ms  | 2.4% faster  |
+| 100K | 5           | 110.5s            | 112.3s | 1.5% faster  |
+| 100K | 10          | 56.2s             | 57.5s  | 2.1% faster  |
+| 100K | 20          | 29.1s             | 29.6s  | 1.7% faster  |
 
 Run benchmarks yourself:
 
