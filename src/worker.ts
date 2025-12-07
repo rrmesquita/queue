@@ -257,11 +257,15 @@ export class Worker {
       return instance.execute()
     }
 
-    const timeoutPromise = setTimeout(timeout).then(() => {
-      throw new errors.E_JOB_TIMEOUT([instance.constructor.name, timeout])
+    const signal = AbortSignal.timeout(timeout)
+
+    const abortPromise = new Promise<never>((_, reject) => {
+      signal.addEventListener('abort', () => {
+        reject(new errors.E_JOB_TIMEOUT([instance.constructor.name, timeout]))
+      })
     })
 
-    await Promise.race([instance.execute(), timeoutPromise])
+    await Promise.race([instance.execute(signal), abortPromise])
   }
 
   async #acquireNextJob(queues: string[]): Promise<{ job: AcquiredJob; queue: string } | null> {

@@ -38,7 +38,7 @@ export abstract class Job<Payload = any> {
     return dispatcher
   }
 
-  abstract execute(): Promise<void>
+  abstract execute(signal?: AbortSignal): Promise<void>
 
   failed?(error: Error): Promise<void>
 }
