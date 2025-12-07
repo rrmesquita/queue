@@ -4,13 +4,6 @@ import { Job } from '#src/job'
 
 export type Duration = number | string
 
-export interface AcquiredJob extends JobData {
-  _lease: {
-    commit: () => Promise<void>
-    rollback: () => Promise<void>
-  }
-}
-
 export interface JobData {
   id: string
   name: string
@@ -45,12 +38,6 @@ export interface BackoffConfig {
   maxDelay?: Duration
   multiplier?: number
   jitter?: boolean
-}
-
-export interface LeaseConfig {
-  workerId: string
-  leaseTimeout: Duration
-  renewalInterval: Duration
 }
 
 export interface QueueConfig {

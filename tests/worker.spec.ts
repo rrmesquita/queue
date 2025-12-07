@@ -2,7 +2,6 @@ import { test } from '@japa/runner'
 import { setTimeout } from 'node:timers/promises'
 import { Worker } from '#src/worker'
 import { memory } from './_mocks/memory_adapter.ts'
-import { MemoryLeaseManager } from './_mocks/memory_lease_manager.ts'
 import { ChaosAdapter } from './_mocks/chaos_adapter.ts'
 import type { QueueManagerConfig } from '#types/main'
 import { Locator } from '#src/locator'
@@ -669,14 +668,16 @@ test.group('Worker', () => {
     assert.isTrue(jobCompleted, 'Job should have completed before worker stopped')
   })
 
-  test('should release lease when job fails permanently', async ({ assert, cleanup }) => {
+  test('should handle job that fails permanently', async ({ assert, cleanup }) => {
+    let failedCalled = false
+
     class FailingJob extends Job {
       async execute() {
         throw new Error('Job failed')
       }
 
       async failed() {
-        // Job marked as failed
+        failedCalled = true
       }
     }
 
@@ -694,7 +695,6 @@ test.group('Worker', () => {
 
     cleanup(async () => {
       Locator.clear()
-      MemoryLeaseManager.leases.clear()
       await worker.stop()
     })
 
@@ -706,18 +706,13 @@ test.group('Worker', () => {
       priority: 0,
     })
 
-    // Process the job (no retries configured, so it fails permanently)
     await worker.processCycle(['default']) // started
     await worker.processCycle(['default']) // completed
 
-    // Lease should be released after permanent failure
-    assert.isFalse(
-      MemoryLeaseManager.leases.has('failing-job'),
-      'Lease should be released after permanent failure'
-    )
+    assert.isTrue(failedCalled, 'Failed callback should be called')
   })
 
-  test('should release lease when job class is not found', async ({ assert, cleanup }) => {
+  test('should handle job class not found', async ({ assert, cleanup }) => {
     const sharedAdapter = memory()()
 
     const localConfig = {
@@ -726,13 +721,10 @@ test.group('Worker', () => {
       locations: ['./jobs/**/*'],
     }
 
-    // Do NOT register the job class - this simulates a missing job class
-
     const worker = new Worker(localConfig)
 
     cleanup(async () => {
       Locator.clear()
-      MemoryLeaseManager.leases.clear()
       await worker.stop()
     })
 
@@ -744,18 +736,15 @@ test.group('Worker', () => {
       priority: 0,
     })
 
-    // Process the job - it will fail because the job class is not registered
     await worker.processCycle(['default']) // started
-    await worker.processCycle(['default']) // completed (with error)
+    const cycle = await worker.processCycle(['default']) // completed (job failed)
 
-    // Lease should be released even though job class was not found
-    assert.isFalse(
-      MemoryLeaseManager.leases.has('unknown-job'),
-      'Lease should be released when job class is not found'
-    )
+    // Job initialization failure is handled gracefully - job is marked as failed
+    // @ts-ignore
+    assert.equal(cycle.type, 'completed')
   })
 
-  test('should release lease when job constructor throws', async ({ assert, cleanup }) => {
+  test('should handle job constructor that throws', async ({ assert, cleanup }) => {
     class BrokenJob extends Job {
       constructor(payload: any) {
         super(payload)
@@ -779,7 +768,6 @@ test.group('Worker', () => {
 
     cleanup(async () => {
       Locator.clear()
-      MemoryLeaseManager.leases.clear()
       await worker.stop()
     })
 
@@ -792,11 +780,10 @@ test.group('Worker', () => {
     })
 
     await worker.processCycle(['default']) // started
-    await worker.processCycle(['default']) // completed (with error)
+    const cycle = await worker.processCycle(['default']) // completed (job failed)
 
-    assert.isFalse(
-      MemoryLeaseManager.leases.has('broken-job'),
-      'Lease should be released when constructor throws'
-    )
+    // Job initialization failure is handled gracefully - job is marked as failed
+    // @ts-ignore
+    assert.equal(cycle.type, 'completed')
   })
 })

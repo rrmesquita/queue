@@ -69,9 +69,7 @@ async function runBenchmarks(config: BenchmarkConfig = defaultConfig) {
     grouped.get(key)!.push(result)
   }
 
-  console.log(
-    'Jobs\tConc.\t@boringnode/queue\t\tBullMQ\t\t\tDiff'
-  )
+  console.log('Jobs\tConc.\t@boringnode/queue\t\tBullMQ\t\t\tDiff')
   console.log('-'.repeat(90))
 
   for (const [key, group] of grouped) {
@@ -82,9 +80,7 @@ async function runBenchmarks(config: BenchmarkConfig = defaultConfig) {
     const boringnodeStr = boringnode
       ? `${boringnode.elapsed}ms (${boringnode.jobsPerSecond.toFixed(0)} j/s)`
       : '-'
-    const bullmqStr = bullmq
-      ? `${bullmq.elapsed}ms (${bullmq.jobsPerSecond.toFixed(0)} j/s)`
-      : '-'
+    const bullmqStr = bullmq ? `${bullmq.elapsed}ms (${bullmq.jobsPerSecond.toFixed(0)} j/s)` : '-'
 
     let diff = ''
     if (boringnode && bullmq) {

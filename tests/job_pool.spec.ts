@@ -1,7 +1,7 @@
 import { setTimeout } from 'node:timers/promises'
 import { test } from '@japa/runner'
 import { JobPool } from '#src/job_pool'
-import type { AcquiredJob } from '#types/main'
+import type { AcquiredJob } from '#contracts/adapter'
 
 function createJob(id: string): AcquiredJob {
   return {
@@ -10,10 +10,7 @@ function createJob(id: string): AcquiredJob {
     payload: {},
     attempts: 0,
     priority: 0,
-    _lease: {
-      commit: async () => {},
-      rollback: async () => {},
-    },
+    acquiredAt: Date.now(),
   }
 }
 

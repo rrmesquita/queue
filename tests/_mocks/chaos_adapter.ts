@@ -1,5 +1,5 @@
 import { MemoryAdapter } from './memory_adapter.ts'
-import type { JobData } from '#types/main'
+import type { AcquiredJob } from '#contracts/adapter'
 
 export class ChaosAdapter extends MemoryAdapter {
   #throwProbability = 0
@@ -12,7 +12,7 @@ export class ChaosAdapter extends MemoryAdapter {
     this.#throwProbability = 0
   }
 
-  async popFrom(queue: string): Promise<JobData | null> {
+  async popFrom(queue: string): Promise<AcquiredJob | null> {
     if (Math.random() < this.#throwProbability) {
       throw new Error('Simulated error')
     }

@@ -1,4 +1,4 @@
-import type { AcquiredJob } from '#types/main'
+import type { AcquiredJob } from '#contracts/adapter'
 
 interface PoolEntry {
   promise: Promise<void>

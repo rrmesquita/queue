@@ -36,8 +36,7 @@
   },
   "dependencies": {
     "@lukeed/ms": "^2.0.2",
-    "@poppinss/utils": "^6.10.1",
-    "@verrou/core": "^0.5.1"
+    "@poppinss/utils": "^6.10.1"
   },
   "devDependencies": {
     "@adonisjs/eslint-config": "^2.1.2",

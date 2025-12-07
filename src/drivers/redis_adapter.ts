@@ -1,35 +1,126 @@
-import { VerrouLeaseManager } from '#lease_managers/verrou'
 import { Redis, type RedisOptions } from 'ioredis'
-import type { Adapter } from '#contracts/adapter'
-import type { JobData, LeaseConfig } from '#types/main'
-import type { LeaseManager } from '#contracts/lease_manager'
+import type { Adapter, AcquiredJob } from '#contracts/adapter'
+import type { JobData } from '#types/main'
 
 const redisKey = 'jobs'
 type RedisConfig = Redis | RedisOptions
 
-// Lua script for atomic delayed job processing
-const PROCESS_DELAYED_JOBS_SCRIPT = `
-  local delayed_key = KEYS[1]
-  local queue_key = KEYS[2]
-  local now = ARGV[1]
+/**
+ * Lua script for atomic job acquisition.
+ * 1. Check and process delayed jobs
+ * 2. Pop from pending queue
+ * 3. Add to active hash with worker info
+ * 4. Return job data
+ */
+const ACQUIRE_JOB_SCRIPT = `
+  local pending_key = KEYS[1]
+  local active_key = KEYS[2]
+  local delayed_key = KEYS[3]
+  local worker_id = ARGV[1]
+  local now = ARGV[2]
 
-  -- Get ready jobs (score <= now)
+  -- First, process delayed jobs
   local ready_jobs = redis.call('ZRANGEBYSCORE', delayed_key, 0, now)
-
   if #ready_jobs > 0 then
-    -- Move jobs to priority queue and remove from delayed queue atomically
     for i = 1, #ready_jobs do
       local job_data = ready_jobs[i]
       local job = cjson.decode(job_data)
       local priority = job.priority or 5
-      redis.call('ZADD', queue_key, priority, job_data)
+      local timestamp = tonumber(now)
+      local score = priority * 10000000000000 + timestamp
+      redis.call('ZADD', pending_key, score, job_data)
       redis.call('ZREM', delayed_key, job_data)
     end
-
-    return #ready_jobs
   end
 
-  return 0
+  -- Pop highest priority job (lowest score)
+  local result = redis.call('ZPOPMIN', pending_key)
+  if not result or #result == 0 then
+    return nil
+  end
+
+  local job_data = result[1]
+  local job = cjson.decode(job_data)
+
+  -- Store in active hash: jobId -> {workerId, acquiredAt, data}
+  local active_data = cjson.encode({
+    workerId = worker_id,
+    acquiredAt = tonumber(now),
+    data = job
+  })
+  redis.call('HSET', active_key, job.id, active_data)
+
+  -- Return job with acquiredAt
+  job.acquiredAt = tonumber(now)
+  return cjson.encode(job)
+`
+
+/**
+ * Lua script for completing a job.
+ * Removes the job from active hash.
+ */
+const COMPLETE_JOB_SCRIPT = `
+  local active_key = KEYS[1]
+  local job_id = ARGV[1]
+
+  redis.call('HDEL', active_key, job_id)
+  return 1
+`
+
+/**
+ * Lua script for failing a job permanently.
+ * Removes from active hash.
+ */
+const FAIL_JOB_SCRIPT = `
+  local active_key = KEYS[1]
+  local job_id = ARGV[1]
+
+  redis.call('HDEL', active_key, job_id)
+  return 1
+`
+
+/**
+ * Lua script for retrying a job.
+ * 1. Get job from active hash
+ * 2. Remove from active hash
+ * 3. Increment attempts
+ * 4. Add back to pending (or delayed if retryAt is set)
+ */
+const RETRY_JOB_SCRIPT = `
+  local active_key = KEYS[1]
+  local pending_key = KEYS[2]
+  local delayed_key = KEYS[3]
+  local job_id = ARGV[1]
+  local retry_at = tonumber(ARGV[2])
+  local now = tonumber(ARGV[3])
+
+  -- Get job from active hash
+  local active_data = redis.call('HGET', active_key, job_id)
+  if not active_data then
+    return 0
+  end
+
+  local active = cjson.decode(active_data)
+  local job = active.data
+
+  -- Remove from active
+  redis.call('HDEL', active_key, job_id)
+
+  -- Increment attempts
+  job.attempts = (job.attempts or 0) + 1
+
+  local job_data = cjson.encode(job)
+
+  -- Add back to pending or delayed
+  if retry_at and retry_at > now then
+    redis.call('ZADD', delayed_key, retry_at, job_data)
+  else
+    local priority = job.priority or 5
+    local score = priority * 10000000000000 + now
+    redis.call('ZADD', pending_key, score, job_data)
+  end
+
+  return 1
 `
 
 export function redis(config?: RedisConfig) {
@@ -38,7 +129,6 @@ export function redis(config?: RedisConfig) {
       return new RedisAdapter(config)
     }
 
-    // Create new Redis instance from options
     const options: RedisOptions = {
       host: 'localhost',
       port: 6379,
@@ -54,47 +144,111 @@ export function redis(config?: RedisConfig) {
 
 export class RedisAdapter implements Adapter {
   readonly #connection: Redis
-  #lastDelayedCheck: Map<string, number> = new Map()
-  #delayedCheckInterval = 100 // Check delayed jobs every 100ms max
+  #workerId: string = ''
 
   constructor(connection: Redis) {
     this.#connection = connection
   }
 
-  createLeaseManager(config: LeaseConfig): LeaseManager {
-    return new VerrouLeaseManager(config, this.#connection)
+  setWorkerId(workerId: string): void {
+    this.#workerId = workerId
   }
 
   async destroy(): Promise<void> {
     await this.#connection.quit()
   }
 
-  pop(): Promise<JobData | null> {
+  pop(): Promise<AcquiredJob | null> {
     return this.popFrom('default')
   }
 
-  async popFrom(queue: string): Promise<JobData | null> {
-    // Check delayed jobs periodically, not on every pop
-    await this.#maybeProcessDelayedJobs(queue)
+  async popFrom(queue: string): Promise<AcquiredJob | null> {
+    const now = Date.now()
+    const pendingKey = `${redisKey}::${queue}`
+    const activeKey = `${redisKey}::${queue}::active`
+    const delayedKey = `${redisKey}::delayed::${queue}`
 
-    // Pop from priority queue (sorted set) - highest priority (lowest score) first
-    const queueContent = await this.#connection.zpopmin(`${redisKey}::${queue}`)
+    const result = await this.#connection.eval(
+      ACQUIRE_JOB_SCRIPT,
+      3,
+      pendingKey,
+      activeKey,
+      delayedKey,
+      this.#workerId,
+      now.toString()
+    )
 
-    if (queueContent && queueContent.length > 0) {
-      return JSON.parse(queueContent[0])
+    if (!result) {
+      return null
     }
 
-    return null
+    return JSON.parse(result as string)
   }
 
-  async #maybeProcessDelayedJobs(queue: string): Promise<void> {
-    const now = Date.now()
-    const lastCheck = this.#lastDelayedCheck.get(queue) || 0
-
-    if (now - lastCheck >= this.#delayedCheckInterval) {
-      this.#lastDelayedCheck.set(queue, now)
-      await this.#processDelayedJobs(queue)
+  async popAndWait(queue: string, timeout: number): Promise<AcquiredJob | null> {
+    // First try immediate pop
+    const immediate = await this.popFrom(queue)
+    if (immediate) {
+      return immediate
     }
+
+    // Wait for new job using BZPOPMIN on pending queue
+    const pendingKey = `${redisKey}::${queue}`
+    const activeKey = `${redisKey}::${queue}::active`
+    const now = Date.now()
+
+    // BZPOPMIN returns [key, member, score] or null
+    const result = await this.#connection.bzpopmin(pendingKey, timeout / 1000)
+
+    if (!result) {
+      return null
+    }
+
+    const [, jobData] = result
+    const job = JSON.parse(jobData)
+
+    // Store in active hash
+    const activeData = JSON.stringify({
+      workerId: this.#workerId,
+      acquiredAt: now,
+      data: job,
+    })
+    await this.#connection.hset(activeKey, job.id, activeData)
+
+    return {
+      ...job,
+      acquiredAt: now,
+    }
+  }
+
+  async completeJob(jobId: string, queue: string): Promise<void> {
+    const activeKey = `${redisKey}::${queue}::active`
+
+    await this.#connection.eval(COMPLETE_JOB_SCRIPT, 1, activeKey, jobId)
+  }
+
+  async failJob(jobId: string, queue: string, _error?: Error): Promise<void> {
+    const activeKey = `${redisKey}::${queue}::active`
+
+    await this.#connection.eval(FAIL_JOB_SCRIPT, 1, activeKey, jobId)
+  }
+
+  async retryJob(jobId: string, queue: string, retryAt?: Date): Promise<void> {
+    const now = Date.now()
+    const activeKey = `${redisKey}::${queue}::active`
+    const pendingKey = `${redisKey}::${queue}`
+    const delayedKey = `${redisKey}::delayed::${queue}`
+
+    await this.#connection.eval(
+      RETRY_JOB_SCRIPT,
+      3,
+      activeKey,
+      pendingKey,
+      delayedKey,
+      jobId,
+      retryAt ? retryAt.getTime().toString() : '0',
+      now.toString()
+    )
   }
 
   push(jobData: JobData): Promise<void> {
@@ -129,20 +283,5 @@ export class RedisAdapter implements Adapter {
 
   sizeOf(queue: string): Promise<number> {
     return this.#connection.zcard(`${redisKey}::${queue}`)
-  }
-
-  async #processDelayedJobs(queue: string): Promise<number> {
-    const now = Date.now()
-    const delayedKey = `${redisKey}::delayed::${queue}`
-    const queueKey = `${redisKey}::${queue}`
-
-    // Use Lua script for atomic operation - much faster than pipeline
-    return (await this.#connection.eval(
-      PROCESS_DELAYED_JOBS_SCRIPT,
-      2, // number of keys
-      delayedKey,
-      queueKey,
-      now.toString()
-    )) as number
   }
 }

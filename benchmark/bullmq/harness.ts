@@ -1,4 +1,4 @@
-import { Queue, Worker } from 'bullmq'
+import { Queue, Worker, type ConnectionOptions } from 'bullmq'
 import { Redis } from 'ioredis'
 import { barrier, type BenchmarkOptions, type BenchmarkResult } from '../helpers.ts'
 
@@ -19,7 +19,7 @@ export async function run(options: BenchmarkOptions): Promise<BenchmarkResult> {
   await clearQueue(connection)
 
   const queue = new Queue('benchmark', {
-    connection,
+    connection: connection as ConnectionOptions,
     defaultJobOptions: {
       removeOnComplete: true,
       removeOnFail: true,
@@ -43,7 +43,7 @@ export async function run(options: BenchmarkOptions): Promise<BenchmarkResult> {
       next()
     },
     {
-      connection,
+      connection: connection as ConnectionOptions,
       concurrency: options.concurrency,
     }
   )

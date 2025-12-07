@@ -1,7 +1,10 @@
-import { MemoryLeaseManager } from './memory_lease_manager.ts'
-import type { Adapter } from '#contracts/adapter'
-import type { LeaseManager } from '#contracts/lease_manager'
-import type { JobData, LeaseConfig } from '#types/main'
+import type { Adapter, AcquiredJob } from '#contracts/adapter'
+import type { JobData } from '#types/main'
+
+interface ActiveJob {
+  job: JobData
+  acquiredAt: number
+}
 
 export function memory() {
   return () => new MemoryAdapter()
@@ -9,10 +12,10 @@ export function memory() {
 
 export class MemoryAdapter implements Adapter {
   #queues: Map<string, JobData[]> = new Map()
+  #activeJobs: Map<string, ActiveJob> = new Map()
+  #pendingTimeouts: Set<NodeJS.Timeout> = new Set()
 
-  createLeaseManager(config: LeaseConfig): LeaseManager {
-    return new MemoryLeaseManager(config)
-  }
+  setWorkerId(_workerId: string): void {}
 
   async size(): Promise<number> {
     return this.sizeOf('default')
@@ -41,28 +44,76 @@ export class MemoryAdapter implements Adapter {
   }
 
   pushLaterOn(queue: string, jobData: JobData, delay: number): Promise<void> {
-    setTimeout(() => {
+    const timeout = setTimeout(() => {
+      this.#pendingTimeouts.delete(timeout)
       void this.pushOn(queue, jobData)
     }, delay)
+
+    this.#pendingTimeouts.add(timeout)
 
     return Promise.resolve()
   }
 
-  async pop(): Promise<JobData | null> {
+  async pop(): Promise<AcquiredJob | null> {
     return this.popFrom('default')
   }
 
-  async popFrom(queue: string): Promise<JobData | null> {
+  async popFrom(queue: string): Promise<AcquiredJob | null> {
     const jobs = this.#queues.get(queue)
 
     if (!jobs || jobs.length === 0) {
       return null
     }
 
-    return jobs.shift() || null
+    const job = jobs.shift()
+    if (!job) {
+      return null
+    }
+
+    const acquiredAt = Date.now()
+    this.#activeJobs.set(job.id, { job, acquiredAt })
+
+    return { ...job, acquiredAt }
+  }
+
+  async completeJob(jobId: string, _queue: string): Promise<void> {
+    this.#activeJobs.delete(jobId)
+  }
+
+  async failJob(jobId: string, _queue: string, _error?: Error): Promise<void> {
+    this.#activeJobs.delete(jobId)
+  }
+
+  async retryJob(jobId: string, queue: string, retryAt?: Date): Promise<void> {
+    const active = this.#activeJobs.get(jobId)
+    if (!active) return
+
+    this.#activeJobs.delete(jobId)
+
+    const updatedJob = {
+      ...active.job,
+      attempts: (active.job.attempts || 0) + 1,
+    }
+
+    if (retryAt) {
+      const delay = retryAt.getTime() - Date.now()
+
+      if (delay > 0) {
+        await this.pushLaterOn(queue, updatedJob, delay)
+        return
+      }
+    }
+
+    await this.pushOn(queue, updatedJob)
   }
 
   destroy(): Promise<void> {
+    for (const timeout of this.#pendingTimeouts) {
+      clearTimeout(timeout)
+    }
+
+    this.#pendingTimeouts.clear()
+
     return Promise.resolve()
   }
 }
