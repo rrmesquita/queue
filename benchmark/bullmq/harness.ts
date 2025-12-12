@@ -1,7 +1,7 @@
 import { setTimeout } from 'node:timers/promises'
 import { Queue, Worker, type ConnectionOptions } from 'bullmq'
 import { Redis } from 'ioredis'
-import { barrier, type BenchmarkOptions, type BenchmarkResult } from '../helpers.ts'
+import { barrier, type BenchmarkOptions, type BenchmarkResult } from '../helpers.js'
 
 async function clearQueue(connection: Redis) {
   const keys = await connection.keys('bull:benchmark:*')

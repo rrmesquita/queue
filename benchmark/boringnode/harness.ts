@@ -4,7 +4,7 @@ import { Worker } from '#src/worker'
 import { Job } from '#src/job'
 import { Locator } from '#src/locator'
 import { redis } from '#drivers/redis_adapter'
-import { barrier, type BenchmarkOptions, type BenchmarkResult } from '../helpers.ts'
+import { barrier, type BenchmarkOptions, type BenchmarkResult } from '../helpers.js'
 import type { QueueManagerConfig } from '#types/main'
 
 // Barrier callback and job duration - set before each benchmark run

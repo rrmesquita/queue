@@ -2,7 +2,7 @@ import { test } from '@japa/runner'
 import { Job } from '#src/job'
 import { Locator } from '#src/locator'
 import * as errors from '#src/exceptions'
-import SendEmailJob from '../examples/jobs/send_email_job.ts'
+import SendEmailJob from '../examples/jobs/send_email_job.js'
 
 class TestJob extends Job<{ message: string }> {
   static jobName = 'TestJob'
@@ -41,7 +41,7 @@ test.group('Locator', (group) => {
   })
 
   test('should register a job class from glob pattern', async ({ assert }) => {
-    await Locator.registerFromGlob(['./examples/jobs/*.ts'])
+    await Locator.registerFromGlob(['./examples/jobs/*.js'])
 
     assert.equal(Locator.get('SendEmailJob'), SendEmailJob)
   })

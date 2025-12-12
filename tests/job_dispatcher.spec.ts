@@ -1,6 +1,6 @@
 import { setTimeout } from 'node:timers/promises'
 import { test } from '@japa/runner'
-import { memory } from './_mocks/memory_adapter.ts'
+import { memory } from './_mocks/memory_adapter.js'
 import { QueueManager } from '#src/queue_manager'
 import { JobDispatcher } from '#src/job_dispatcher'
 

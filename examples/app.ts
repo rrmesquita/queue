@@ -1,7 +1,7 @@
-import { config } from './config.ts'
+import { config } from './config.js'
 import { QueueManager } from '#src/queue_manager'
-import SendEmailJob from './jobs/send_email_job.ts'
-import SyncJob from './jobs/sync_job.ts'
+import SendEmailJob from './jobs/send_email_job.js'
+import SyncJob from './jobs/sync_job.js'
 
 await QueueManager.init(config)
 

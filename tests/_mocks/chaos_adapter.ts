@@ -1,4 +1,4 @@
-import { MemoryAdapter } from './memory_adapter.ts'
+import { MemoryAdapter } from './memory_adapter.js'
 import type { AcquiredJob } from '#contracts/adapter'
 
 export class ChaosAdapter extends MemoryAdapter {

@@ -1,6 +1,6 @@
-import { formatResult, type BenchmarkOptions, type BenchmarkResult } from './helpers.ts'
-import { run as runBoringnode } from './boringnode/harness.ts'
-import { run as runBullMQ } from './bullmq/harness.ts'
+import { formatResult, type BenchmarkOptions, type BenchmarkResult } from './helpers.js'
+import { run as runBoringnode } from './boringnode/harness.js'
+import { run as runBullMQ } from './bullmq/harness.js'
 
 interface BenchmarkConfig {
   numRuns: number[]

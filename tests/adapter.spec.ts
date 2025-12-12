@@ -1,10 +1,10 @@
 import Knex from 'knex'
 import { test } from '@japa/runner'
 import { Redis } from 'ioredis'
-import { MemoryAdapter } from './_mocks/memory_adapter.ts'
+import { MemoryAdapter } from './_mocks/memory_adapter.js'
 import { RedisAdapter } from '#drivers/redis_adapter'
 import { KnexAdapter } from '#drivers/knex_adapter'
-import { registerDriverTestSuite } from './_utils/register_driver_test_suite.ts'
+import { registerDriverTestSuite } from './_utils/register_driver_test_suite.js'
 
 const KEY_PREFIX = 'boringnode::queue::test::'
 
