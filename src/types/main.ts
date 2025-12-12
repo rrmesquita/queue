@@ -1,6 +1,6 @@
-import type { BackoffStrategy as BackoffStrategyClass } from '#strategies/backoff_strategy'
-import type { Adapter } from '#contracts/adapter'
-import { Job } from '#src/job'
+import type { BackoffStrategy as BackoffStrategyClass } from '../strategies/backoff_strategy.js'
+import type { Adapter } from '../contracts/adapter.js'
+import { Job } from '../job.js'
 
 export type Duration = number | string
 

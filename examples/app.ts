@@ -1,5 +1,5 @@
 import { config } from './config.js'
-import { QueueManager } from '#src/queue_manager'
+import { QueueManager } from '../src/queue_manager.js'
 import SendEmailJob from './jobs/send_email_job.js'
 import SyncJob from './jobs/sync_job.js'
 

@@ -1,4 +1,4 @@
-import { Worker } from '#src/worker'
+import { Worker } from '../src/worker.js'
 import { config } from './config.js'
 
 const worker = new Worker(config)

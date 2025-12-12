@@ -1,7 +1,7 @@
-import { redis } from '#drivers/redis_adapter'
-import { sync } from '#drivers/sync_adapter'
-import { knex } from '#drivers/knex_adapter'
-import type { QueueManagerConfig } from '#types/main'
+import { redis } from '../src/drivers/redis_adapter.js'
+import { sync } from '../src/drivers/sync_adapter.js'
+import { knex } from '../src/drivers/knex_adapter.js'
+import type { QueueManagerConfig } from '../src/types/main.js'
 
 export const config: QueueManagerConfig = {
   default: 'knex',

@@ -1,4 +1,4 @@
-import type { JobData } from '#types/main'
+import type { JobData } from '../types/main.js'
 
 export interface AcquiredJob extends JobData {
   acquiredAt: number

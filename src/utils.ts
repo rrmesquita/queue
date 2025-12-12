@@ -1,6 +1,6 @@
 import { parse as parseDuration } from '@lukeed/ms'
-import type { Duration } from '#types/main'
-import * as errors from '#src/exceptions'
+import type { Duration } from './types/main.js'
+import * as errors from './exceptions.js'
 
 export function parse(duration: Duration): number {
   if (typeof duration === 'number') {

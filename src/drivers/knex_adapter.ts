@@ -1,7 +1,7 @@
 import KnexPkg from 'knex'
 import type { Knex } from 'knex'
-import type { Adapter, AcquiredJob } from '#contracts/adapter'
-import type { JobData } from '#types/main'
+import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
+import type { JobData } from '../types/main.js'
 
 export interface KnexAdapterOptions {
   connection: Knex

@@ -5,8 +5,8 @@ import {
   exponentialBackoff,
   fixedBackoff,
   linearBackoff,
-} from '#strategies/backoff_strategy'
-import * as errors from '#src/exceptions'
+} from '../src/strategies/backoff_strategy.js'
+import * as errors from '../src/exceptions.js'
 
 test.group('BackoffStrategy', () => {
   test('should validate negative baseDelay', ({ assert }) => {

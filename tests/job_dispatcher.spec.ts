@@ -1,8 +1,8 @@
 import { setTimeout } from 'node:timers/promises'
 import { test } from '@japa/runner'
 import { memory } from './_mocks/memory_adapter.js'
-import { QueueManager } from '#src/queue_manager'
-import { JobDispatcher } from '#src/job_dispatcher'
+import { QueueManager } from '../src/queue_manager.js'
+import { JobDispatcher } from '../src/job_dispatcher.js'
 
 test.group('JobDispatcher', () => {
   test('should dispatch job correctly', async ({ assert }) => {

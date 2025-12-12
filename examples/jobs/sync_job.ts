@@ -1,6 +1,6 @@
 import { setTimeout } from 'node:timers/promises'
-import { Job } from '#src/job'
-import type { JobOptions } from '#types/main'
+import { Job } from '../../src/job.js'
+import type { JobOptions } from '../../src/types/main.js'
 
 interface SyncJobPayload {
   source: string

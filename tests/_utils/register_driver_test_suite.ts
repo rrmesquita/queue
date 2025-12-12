@@ -1,5 +1,5 @@
 import { test as JapaTest } from '@japa/runner'
-import type { Adapter } from '#contracts/adapter'
+import type { Adapter } from '../../src/contracts/adapter.js'
 
 interface DriverTestSuiteOptions {
   test: typeof JapaTest

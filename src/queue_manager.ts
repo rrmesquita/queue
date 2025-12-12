@@ -1,8 +1,8 @@
-import * as errors from '#src/exceptions'
-import debug from '#src/debug'
-import { Locator } from '#src/locator'
-import type { Adapter } from '#contracts/adapter'
-import type { AdapterFactory, QueueConfig, QueueManagerConfig, RetryConfig } from '#types/main'
+import * as errors from './exceptions.js'
+import debug from './debug.js'
+import { Locator } from './locator.js'
+import type { Adapter } from './contracts/adapter.js'
+import type { AdapterFactory, QueueConfig, QueueManagerConfig, RetryConfig } from './types/main.js'
 
 class QueueManagerSingleton {
   #defaultAdapter!: string

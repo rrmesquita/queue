@@ -1,5 +1,5 @@
-import type { Adapter, AcquiredJob } from '#contracts/adapter'
-import type { JobData } from '#types/main'
+import type { Adapter, AcquiredJob } from '../../src/contracts/adapter.js'
+import type { JobData } from '../../src/types/main.js'
 
 interface ActiveJob {
   job: JobData

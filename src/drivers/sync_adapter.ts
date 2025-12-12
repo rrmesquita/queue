@@ -1,6 +1,6 @@
-import { Locator } from '#src/locator'
-import type { Adapter, AcquiredJob } from '#contracts/adapter'
-import type { JobData } from '#types/main'
+import { Locator } from '../locator.js'
+import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
+import type { JobData } from '../types/main.js'
 
 export function sync() {
   return () => new SyncAdapter()

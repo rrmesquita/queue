@@ -1,9 +1,9 @@
-import debug from '#src/debug'
+import debug from './debug.js'
 import { randomUUID } from 'node:crypto'
-import { QueueManager } from '#src/queue_manager'
-import type { Adapter } from '#contracts/adapter'
-import type { Duration } from '#types/main'
-import { parse } from '#src/utils'
+import { QueueManager } from './queue_manager.js'
+import type { Adapter } from './contracts/adapter.js'
+import type { Duration } from './types/main.js'
+import { parse } from './utils.js'
 
 export class JobDispatcher<T> {
   readonly #name: string

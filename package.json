@@ -13,25 +13,17 @@
     "./contracts/*": "./build/src/contracts/*.js",
     "./types/*": "./build/src/types/*.js"
   },
-  "imports": {
-    "#src/*": "./src/*.ts",
-    "#drivers/*": "./src/drivers/*.ts",
-    "#lease_managers/*": "./src/lease_managers/*.ts",
-    "#contracts/*": "./src/contracts/*.ts",
-    "#strategies/*": "./src/strategies/*.ts",
-    "#types/*": "./src/types/*.ts"
-  },
   "scripts": {
-    "benchmark": "node benchmark/run.ts",
-    "benchmark:quick": "node benchmark/run.ts --quick",
-    "benchmark:full": "node benchmark/run.ts --full",
+    "benchmark": "node --import=@poppinss/ts-exec benchmark/run.ts",
+    "benchmark:quick": "node --import=@poppinss/ts-exec benchmark/run.ts --quick",
+    "benchmark:full": "node --import=@poppinss/ts-exec benchmark/run.ts --full",
     "build": "yarn clean && tsup-node",
     "clean": "del-cli build",
     "format": "prettier --write .",
     "lint": "eslint .",
     "prepublishOnly": "yarn build",
     "release": "yarn dlx release-it",
-    "test": "c8 node --enable-source-maps bin/test.ts",
+    "test": "c8 node --import=@poppinss/ts-exec --enable-source-maps bin/test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -41,11 +33,12 @@
   "devDependencies": {
     "@adonisjs/eslint-config": "^2.1.2",
     "@adonisjs/prettier-config": "^1.4.5",
-    "@adonisjs/tsconfig": "^1.4.1",
+    "@adonisjs/tsconfig": "^2.0.0-next.3",
     "@japa/assert": "^4.1.1",
     "@japa/expect-type": "^2.0.3",
     "@japa/file-system": "^2.3.2",
     "@japa/runner": "^4.4.0",
+    "@poppinss/ts-exec": "^1.4.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.3.1",
     "@types/pg": "^8",

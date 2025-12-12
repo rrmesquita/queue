@@ -1,7 +1,7 @@
 import { setTimeout } from 'node:timers/promises'
 import { test } from '@japa/runner'
-import { JobPool } from '#src/job_pool'
-import type { AcquiredJob } from '#contracts/adapter'
+import { JobPool } from '../src/job_pool.js'
+import type { AcquiredJob } from '../src/contracts/adapter.js'
 
 function createJob(id: string): AcquiredJob {
   return {

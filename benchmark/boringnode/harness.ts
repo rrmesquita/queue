@@ -1,11 +1,11 @@
 import { setTimeout } from 'node:timers/promises'
 import { Redis } from 'ioredis'
-import { Worker } from '#src/worker'
-import { Job } from '#src/job'
-import { Locator } from '#src/locator'
-import { redis } from '#drivers/redis_adapter'
+import { Worker } from '../../src/worker.js'
+import { Job } from '../../src/job.js'
+import { Locator } from '../../src/locator.js'
+import { redis } from '../../src/drivers/redis_adapter.js'
 import { barrier, type BenchmarkOptions, type BenchmarkResult } from '../helpers.js'
-import type { QueueManagerConfig } from '#types/main'
+import type { QueueManagerConfig } from '../../src/types/main.js'
 
 // Barrier callback and job duration - set before each benchmark run
 let onJobComplete: (() => boolean) | null = null

@@ -1,6 +1,6 @@
 import { test } from '@japa/runner'
-import { parse } from '#src/utils'
-import { E_INVALID_DURATION_EXPRESSION } from '#src/exceptions'
+import { parse } from '../src/utils.js'
+import { E_INVALID_DURATION_EXPRESSION } from '../src/exceptions.js'
 
 test.group('Utils', () => {
   test('parse should return number when input is number', ({ assert, expectTypeOf }) => {

@@ -1,12 +1,12 @@
 import { test } from '@japa/runner'
 import { setTimeout } from 'node:timers/promises'
-import { Worker } from '#src/worker'
+import { Worker } from '../src/worker.js'
 import { memory } from './_mocks/memory_adapter.js'
 import { ChaosAdapter } from './_mocks/chaos_adapter.js'
-import type { QueueManagerConfig } from '#types/main'
-import { Locator } from '#src/locator'
-import { Job } from '#src/job'
-import * as errors from '#src/exceptions'
+import type { QueueManagerConfig } from '../src/types/main.js'
+import { Locator } from '../src/locator.js'
+import { Job } from '../src/job.js'
+import * as errors from '../src/exceptions.js'
 
 const config = {
   default: 'memory',

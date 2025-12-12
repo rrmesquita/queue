@@ -1,8 +1,8 @@
 import { test } from '@japa/runner'
-import * as errors from '#src/exceptions'
-import { QueueManager } from '#src/queue_manager'
-import { sync } from '#drivers/sync_adapter'
-import { exponentialBackoff } from '#strategies/backoff_strategy'
+import * as errors from '../src/exceptions.js'
+import { QueueManager } from '../src/queue_manager.js'
+import { sync } from '../src/drivers/sync_adapter.js'
+import { exponentialBackoff } from '../src/strategies/backoff_strategy.js'
 
 test.group('QueueManager', () => {
   test('should validate adapter presence', async ({ assert }) => {

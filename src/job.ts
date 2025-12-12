@@ -1,5 +1,5 @@
-import { JobDispatcher } from '#src/job_dispatcher'
-import type { JobOptions } from '#types/main'
+import { JobDispatcher } from './job_dispatcher.js'
+import type { JobOptions } from './types/main.js'
 
 export abstract class Job<Payload = any> {
   readonly #payload: Payload

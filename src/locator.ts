@@ -1,7 +1,7 @@
-import { Job } from '#src/job'
-import * as errors from '#src/exceptions'
-import type { JobClass } from '#types/main'
-import debug from '#src/debug'
+import { Job } from './job.js'
+import * as errors from './exceptions.js'
+import type { JobClass } from './types/main.js'
+import debug from './debug.js'
 import { glob } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
