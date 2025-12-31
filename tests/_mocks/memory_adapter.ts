@@ -107,6 +107,45 @@ export class MemoryAdapter implements Adapter {
     await this.pushOn(queue, updatedJob)
   }
 
+  async recoverStalledJobs(
+    queue: string,
+    stalledThreshold: number,
+    maxStalledCount: number
+  ): Promise<number> {
+    const now = Date.now()
+    let recovered = 0
+
+    for (const [jobId, active] of this.#activeJobs.entries()) {
+      const isStalled = now - active.acquiredAt > stalledThreshold
+
+      if (!isStalled) {
+        continue
+      }
+
+      const currentStalledCount = active.job.stalledCount ?? 0
+
+      // Check if job has exceeded max stalled count
+      if (currentStalledCount >= maxStalledCount) {
+        // Fail permanently - just remove from active
+        this.#activeJobs.delete(jobId)
+        continue
+      }
+
+      // Recover the job - put back in queue with incremented stalledCount
+      this.#activeJobs.delete(jobId)
+
+      const updatedJob = {
+        ...active.job,
+        stalledCount: currentStalledCount + 1,
+      }
+
+      await this.pushOn(queue, updatedJob)
+      recovered++
+    }
+
+    return recovered
+  }
+
   destroy(): Promise<void> {
     for (const timeout of this.#pendingTimeouts) {
       clearTimeout(timeout)

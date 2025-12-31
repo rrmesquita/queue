@@ -24,6 +24,21 @@ export interface Adapter {
   popFrom(queue: string): Promise<AcquiredJob | null>
 
   /**
+   * Recover stalled jobs that have been active for too long.
+   * Jobs that exceed maxStalledCount will be failed permanently.
+   *
+   * @param queue - The queue to check for stalled jobs
+   * @param stalledThreshold - Duration in ms after which a job is considered stalled
+   * @param maxStalledCount - Maximum times a job can be recovered before failing
+   * @returns Number of jobs that were recovered (not including permanently failed ones)
+   */
+  recoverStalledJobs(
+    queue: string,
+    stalledThreshold: number,
+    maxStalledCount: number
+  ): Promise<number>
+
+  /**
    * Mark a job as completed and remove it from active set.
    */
   completeJob(jobId: string, queue: string): Promise<void>

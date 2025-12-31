@@ -786,4 +786,140 @@ test.group('Worker', () => {
     // @ts-ignore
     assert.equal(cycle.type, 'completed')
   })
+
+  test('should recover stalled jobs during processing', async ({ assert, cleanup }) => {
+    let executionCount = 0
+
+    class TestJob extends Job {
+      async execute() {
+        executionCount++
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      worker: {
+        stalledThreshold: 50,
+        stalledInterval: 50,
+        maxStalledCount: 2,
+      },
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    // Simulate a stalled job by pushing directly to adapter and acquiring it
+    // without completing it
+    sharedAdapter.setWorkerId('crashed-worker')
+    await sharedAdapter.pushOn('default', {
+      id: 'stalled-job-1',
+      name: 'TestJob',
+      payload: { test: true },
+      attempts: 0,
+    })
+
+    // Acquire the job (simulating a worker that then crashed)
+    await sharedAdapter.popFrom('default')
+
+    // Wait for job to become stalled
+    await setTimeout(100)
+
+    // Now start a new worker that should recover the stalled job
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    // Run a few cycles - the stalled job checker should recover the job
+    // and then the worker should process it
+    let cycles = 0
+    let foundStarted = false
+    while (cycles < 10) {
+      const cycle = await worker.processCycle(['default'])
+      cycles++
+
+      if (cycle?.type === 'started') {
+        foundStarted = true
+      }
+
+      if (cycle?.type === 'idle' && foundStarted) {
+        break
+      }
+    }
+
+    assert.isTrue(foundStarted, 'Worker should have started the recovered job')
+    assert.equal(executionCount, 1, 'Job should have been executed once')
+  })
+
+  test('should fail stalled job permanently after maxStalledCount exceeded', async ({
+    assert,
+    cleanup,
+  }) => {
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      worker: {
+        stalledThreshold: 50,
+        stalledInterval: 50,
+        maxStalledCount: 1,
+      },
+    }
+
+    class TestJob extends Job {
+      async execute() {}
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    // Create a job that has already been stalled once (stalledCount = 1)
+    sharedAdapter.setWorkerId('crashed-worker')
+    await sharedAdapter.pushOn('default', {
+      id: 'multi-stalled-job',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      stalledCount: 1, // Already stalled once
+    })
+
+    // Acquire it (simulating another crash)
+    await sharedAdapter.popFrom('default')
+
+    // Wait for it to become stalled
+    await setTimeout(100)
+
+    // Now start a worker - it should detect the stalled job but fail it permanently
+    // because stalledCount (1) >= maxStalledCount (1)
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    // Run cycles - job should NOT be recovered, just removed
+    let cycles = 0
+    let foundJob = false
+    while (cycles < 5) {
+      const cycle = await worker.processCycle(['default'])
+      cycles++
+
+      if (cycle?.type === 'started') {
+        foundJob = true
+      }
+
+      if (cycle?.type === 'idle') {
+        break
+      }
+    }
+
+    assert.isFalse(foundJob, 'Job should not have been recovered - it exceeded maxStalledCount')
+  })
 })

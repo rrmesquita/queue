@@ -11,6 +11,7 @@ export interface JobData {
   attempts: number
   priority?: number
   nextRetryAt?: Date
+  stalledCount?: number
 }
 
 export interface JobOptions {
@@ -46,11 +47,45 @@ export interface QueueConfig {
 }
 
 export interface WorkerConfig {
+  /**
+   * Maximum number of jobs to process concurrently.
+   * @default 1
+   */
   concurrency?: number
+
+  /**
+   * How often to poll for new jobs when the queue is empty.
+   * @default '2s'
+   */
   pollingInterval?: Duration
-  leaseTimeout?: Duration
-  renewalInterval?: Duration
+
+  /**
+   * Maximum duration a job can run before being timed out.
+   * Can be overridden per job via JobOptions.timeout.
+   * @default undefined (no timeout)
+   */
   timeout?: Duration
+
+  /**
+   * Duration after which an active job is considered stalled.
+   * A stalled job is one that was acquired but the worker stopped
+   * responding (e.g., due to a crash).
+   * @default '30s'
+   */
+  stalledThreshold?: Duration
+
+  /**
+   * How often to check for stalled jobs.
+   * @default '30s'
+   */
+  stalledInterval?: Duration
+
+  /**
+   * Maximum number of times a job can be recovered from stalled state
+   * before being marked as failed permanently.
+   * @default 1
+   */
+  maxStalledCount?: number
 }
 
 export type WorkerCycle =

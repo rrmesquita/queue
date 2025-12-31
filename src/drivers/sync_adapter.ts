@@ -61,6 +61,15 @@ export class SyncAdapter implements Adapter {
     return Promise.resolve()
   }
 
+  recoverStalledJobs(
+    _queue: string,
+    _stalledThreshold: number,
+    _maxStalledCount: number
+  ): Promise<number> {
+    // SyncAdapter has no stalled jobs - jobs are executed immediately
+    return Promise.resolve(0)
+  }
+
   destroy(): Promise<void> {
     return Promise.resolve()
   }

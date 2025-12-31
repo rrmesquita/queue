@@ -118,14 +118,11 @@ export class KnexAdapter implements Adapter {
       }
 
       // Update job to active status
-      await trx(this.#tableName)
-        .where('id', job.id)
-        .where('queue', queue)
-        .update({
-          status: 'active',
-          worker_id: this.#workerId,
-          acquired_at: now,
-        })
+      await trx(this.#tableName).where('id', job.id).where('queue', queue).update({
+        status: 'active',
+        worker_id: this.#workerId,
+        acquired_at: now,
+      })
 
       const jobData: JobData = JSON.parse(job.data)
 
@@ -152,33 +149,24 @@ export class KnexAdapter implements Adapter {
       const priority = jobData.priority ?? 5
       const score = priority * 1e13 + now
 
-      await this.#connection(this.#tableName)
-        .where('id', job.id)
-        .where('queue', queue)
-        .update({
-          status: 'pending',
-          score,
-          execute_at: null,
-        })
+      await this.#connection(this.#tableName).where('id', job.id).where('queue', queue).update({
+        status: 'pending',
+        score,
+        execute_at: null,
+      })
     }
   }
 
   async completeJob(jobId: string, queue: string): Promise<void> {
     await this.#ensureTableExists()
 
-    await this.#connection(this.#tableName)
-      .where('id', jobId)
-      .where('queue', queue)
-      .delete()
+    await this.#connection(this.#tableName).where('id', jobId).where('queue', queue).delete()
   }
 
   async failJob(jobId: string, queue: string, _error?: Error): Promise<void> {
     await this.#ensureTableExists()
 
-    await this.#connection(this.#tableName)
-      .where('id', jobId)
-      .where('queue', queue)
-      .delete()
+    await this.#connection(this.#tableName).where('id', jobId).where('queue', queue).delete()
   }
 
   async retryJob(jobId: string, queue: string, retryAt?: Date): Promise<void> {
@@ -202,33 +190,27 @@ export class KnexAdapter implements Adapter {
 
     if (retryAt && retryAt.getTime() > now) {
       // Move to delayed
-      await this.#connection(this.#tableName)
-        .where('id', jobId)
-        .where('queue', queue)
-        .update({
-          status: 'delayed',
-          data: updatedData,
-          worker_id: null,
-          acquired_at: null,
-          score: null,
-          execute_at: retryAt.getTime(),
-        })
+      await this.#connection(this.#tableName).where('id', jobId).where('queue', queue).update({
+        status: 'delayed',
+        data: updatedData,
+        worker_id: null,
+        acquired_at: null,
+        score: null,
+        execute_at: retryAt.getTime(),
+      })
     } else {
       // Move back to pending
       const priority = jobData.priority ?? 5
       const score = priority * 1e13 + now
 
-      await this.#connection(this.#tableName)
-        .where('id', jobId)
-        .where('queue', queue)
-        .update({
-          status: 'pending',
-          data: updatedData,
-          worker_id: null,
-          acquired_at: null,
-          score,
-          execute_at: null,
-        })
+      await this.#connection(this.#tableName).where('id', jobId).where('queue', queue).update({
+        status: 'pending',
+        data: updatedData,
+        worker_id: null,
+        acquired_at: null,
+        score,
+        execute_at: null,
+      })
     }
   }
 
@@ -284,5 +266,54 @@ export class KnexAdapter implements Adapter {
       .first()
 
     return Number(result?.count ?? 0)
+  }
+
+  async recoverStalledJobs(
+    queue: string,
+    stalledThreshold: number,
+    maxStalledCount: number
+  ): Promise<number> {
+    await this.#ensureTableExists()
+
+    const now = Date.now()
+    const stalledCutoff = now - stalledThreshold
+    let recovered = 0
+
+    // Get all stalled jobs
+    const stalledJobs = await this.#connection(this.#tableName)
+      .where('queue', queue)
+      .where('status', 'active')
+      .where('acquired_at', '<', stalledCutoff)
+      .select('id', 'data')
+
+    for (const row of stalledJobs) {
+      const jobData: JobData = JSON.parse(row.data)
+      const currentStalledCount = jobData.stalledCount ?? 0
+
+      if (currentStalledCount >= maxStalledCount) {
+        // Fail permanently - remove the job
+        await this.#connection(this.#tableName).where('id', row.id).where('queue', queue).delete()
+      } else {
+        // Recover: increment stalledCount and put back in pending
+        jobData.stalledCount = currentStalledCount + 1
+        const priority = jobData.priority ?? 5
+        const score = priority * 1e13 + now
+
+        await this.#connection(this.#tableName)
+          .where('id', row.id)
+          .where('queue', queue)
+          .update({
+            status: 'pending',
+            data: JSON.stringify(jobData),
+            worker_id: null,
+            acquired_at: null,
+            score,
+          })
+
+        recovered++
+      }
+    }
+
+    return recovered
   }
 }

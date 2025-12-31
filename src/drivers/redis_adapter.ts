@@ -124,6 +124,58 @@ const RETRY_JOB_SCRIPT = `
 `
 
 /**
+ * Lua script for recovering stalled jobs.
+ * Scans the active hash for jobs that have been active too long.
+ * - Jobs within maxStalledCount: move back to pending with incremented stalledCount
+ * - Jobs exceeding maxStalledCount: remove permanently (fail)
+ * Returns the number of recovered jobs (not including failed ones).
+ */
+const RECOVER_STALLED_JOBS_SCRIPT = `
+  local active_key = KEYS[1]
+  local pending_key = KEYS[2]
+  local now = tonumber(ARGV[1])
+  local stalled_threshold = tonumber(ARGV[2])
+  local max_stalled_count = tonumber(ARGV[3])
+
+  local recovered = 0
+  local stalled_cutoff = now - stalled_threshold
+
+  -- Get all active jobs
+  local active_jobs = redis.call('HGETALL', active_key)
+
+  -- HGETALL returns [field1, value1, field2, value2, ...]
+  for i = 1, #active_jobs, 2 do
+    local job_id = active_jobs[i]
+    local active_data = active_jobs[i + 1]
+    local active = cjson.decode(active_data)
+
+    -- Check if job is stalled
+    if active.acquiredAt < stalled_cutoff then
+      local job = active.data
+      local current_stalled_count = job.stalledCount or 0
+
+      -- Remove from active hash
+      redis.call('HDEL', active_key, job_id)
+
+      -- Check if job has exceeded max stalled count
+      if current_stalled_count >= max_stalled_count then
+        -- Job failed permanently, just remove (already done above)
+      else
+        -- Recover: increment stalledCount and put back in pending
+        job.stalledCount = current_stalled_count + 1
+        local job_data = cjson.encode(job)
+        local priority = job.priority or 5
+        local score = priority * 10000000000000 + now
+        redis.call('ZADD', pending_key, score, job_data)
+        recovered = recovered + 1
+      end
+    end
+  end
+
+  return recovered
+`
+
+/**
  * Create a new Redis adapter factory.
  * Accepts either a Redis instance or Redis options.
  *
@@ -261,5 +313,27 @@ export class RedisAdapter implements Adapter {
 
   sizeOf(queue: string): Promise<number> {
     return this.#connection.zcard(`${redisKey}::${queue}`)
+  }
+
+  async recoverStalledJobs(
+    queue: string,
+    stalledThreshold: number,
+    maxStalledCount: number
+  ): Promise<number> {
+    const now = Date.now()
+    const activeKey = `${redisKey}::${queue}::active`
+    const pendingKey = `${redisKey}::${queue}`
+
+    const recovered = await this.#connection.eval(
+      RECOVER_STALLED_JOBS_SCRIPT,
+      2,
+      activeKey,
+      pendingKey,
+      now.toString(),
+      stalledThreshold.toString(),
+      maxStalledCount.toString()
+    )
+
+    return recovered as number
   }
 }

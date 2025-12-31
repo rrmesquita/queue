@@ -180,4 +180,160 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.equal(job3!.id, 'job-3')
     assert.isNull(job4)
   })
+
+  test('recoverStalledJobs should return 0 when no stalled jobs', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    // No jobs at all
+    const recovered = await adapter.recoverStalledJobs('test-queue', 1000, 1)
+    assert.equal(recovered, 0)
+  })
+
+  test('recoverStalledJobs should not recover jobs within threshold', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-1',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    // Acquire the job
+    const job = await adapter.popFrom('test-queue')
+    assert.isNotNull(job)
+
+    // Try to recover with a long threshold (job is not stalled yet)
+    const recovered = await adapter.recoverStalledJobs('test-queue', 60000, 1)
+    assert.equal(recovered, 0)
+
+    // Job should still be active, not back in pending
+    const nextJob = await adapter.popFrom('test-queue')
+    assert.isNull(nextJob)
+  })
+
+  test('recoverStalledJobs should recover stalled jobs back to pending', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-1',
+      name: 'TestJob',
+      payload: { foo: 'bar' },
+      attempts: 0,
+    })
+
+    // Acquire the job
+    await adapter.popFrom('test-queue')
+
+    // Wait a bit and recover with a very short threshold
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const recovered = await adapter.recoverStalledJobs('test-queue', 10, 1)
+    assert.equal(recovered, 1)
+
+    // Job should be back in pending queue
+    const nextJob = await adapter.popFrom('test-queue')
+    assert.isNotNull(nextJob)
+    assert.equal(nextJob!.id, 'job-1')
+    assert.deepEqual(nextJob!.payload, { foo: 'bar' })
+  })
+
+  test('recoverStalledJobs should increment stalledCount', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-1',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      stalledCount: 0,
+    })
+
+    // First stall cycle
+    await adapter.popFrom('test-queue')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await adapter.recoverStalledJobs('test-queue', 10, 3)
+
+    const job1 = await adapter.popFrom('test-queue')
+    assert.isNotNull(job1)
+    assert.equal(job1!.stalledCount, 1)
+
+    // Second stall cycle
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await adapter.recoverStalledJobs('test-queue', 10, 3)
+
+    const job2 = await adapter.popFrom('test-queue')
+    assert.isNotNull(job2)
+    assert.equal(job2!.stalledCount, 2)
+  })
+
+  test('recoverStalledJobs should fail job permanently when maxStalledCount exceeded', async ({
+    assert,
+  }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-1',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      stalledCount: 0,
+    })
+
+    // First stall - should recover (stalledCount becomes 1)
+    await adapter.popFrom('test-queue')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    let recovered = await adapter.recoverStalledJobs('test-queue', 10, 1)
+    assert.equal(recovered, 1)
+
+    // Second stall - should fail permanently (stalledCount would be 2, exceeds maxStalledCount=1)
+    await adapter.popFrom('test-queue')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    recovered = await adapter.recoverStalledJobs('test-queue', 10, 1)
+    assert.equal(recovered, 0) // Not recovered, but failed
+
+    // Job should be gone (failed permanently)
+    const nextJob = await adapter.popFrom('test-queue')
+    assert.isNull(nextJob)
+  })
+
+  test('recoverStalledJobs should handle multiple stalled jobs', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-1',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+    await adapter.pushOn('test-queue', {
+      id: 'job-2',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    // Acquire both jobs
+    await adapter.popFrom('test-queue')
+    await adapter.popFrom('test-queue')
+
+    // Recover all stalled jobs
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const recovered = await adapter.recoverStalledJobs('test-queue', 10, 1)
+    assert.equal(recovered, 2)
+
+    // Both jobs should be back
+    const job1 = await adapter.popFrom('test-queue')
+    const job2 = await adapter.popFrom('test-queue')
+    const job3 = await adapter.popFrom('test-queue')
+
+    assert.isNotNull(job1)
+    assert.isNotNull(job2)
+    assert.isNull(job3)
+  })
 }

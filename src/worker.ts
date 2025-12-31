@@ -14,11 +14,18 @@ import type { Job } from './job.js'
 export class Worker {
   readonly #id: string
   readonly #config: QueueManagerConfig
+  readonly #pollingInterval: number
+  readonly #stalledInterval: number
+  readonly #stalledThreshold: number
+  readonly #maxStalledCount: number
+  readonly #concurrency: number
+
   #adapter!: Adapter
   #running = false
   #initialized = false
   #generator?: AsyncGenerator<WorkerCycle, void, unknown>
   #pool?: JobPool
+  #lastStalledCheck = 0
 
   get id() {
     return this.#id
@@ -27,6 +34,13 @@ export class Worker {
   constructor(config: QueueManagerConfig) {
     this.#config = config
     this.#id = randomUUID()
+
+    // Parse worker config once at construction
+    this.#pollingInterval = parse(config.worker?.pollingInterval ?? '2s')
+    this.#stalledInterval = parse(config.worker?.stalledInterval ?? '30s')
+    this.#stalledThreshold = parse(config.worker?.stalledThreshold ?? '30s')
+    this.#maxStalledCount = config.worker?.maxStalledCount ?? 1
+    this.#concurrency = config.worker?.concurrency ?? 1
 
     debug('created worker with id %s and config %O', this.#id, config)
   }
@@ -117,15 +131,17 @@ export class Worker {
   }
 
   async *process(queues: string[]): AsyncGenerator<WorkerCycle, void, unknown> {
-    const pollingInterval = parse(this.#config.worker?.pollingInterval || '2s')
     this.#pool = new JobPool()
 
     while (this.#running) {
       try {
+        // Check for stalled jobs periodically
+        await this.#checkStalledJobs(queues)
+
         yield* this.#fillPool(queues)
 
         if (this.#pool.isEmpty()) {
-          yield { type: 'idle', suggestedDelay: pollingInterval }
+          yield { type: 'idle', suggestedDelay: this.#pollingInterval }
           continue
         }
 
@@ -138,8 +154,7 @@ export class Worker {
   }
 
   async *#fillPool(queues: string[]): AsyncGenerator<WorkerCycle, void, unknown> {
-    const concurrency = this.#config.worker?.concurrency || 1
-    const slotsAvailable = concurrency - this.#pool!.size
+    const slotsAvailable = this.#concurrency - this.#pool!.size
 
     if (slotsAvailable <= 0) return
 
@@ -277,6 +292,29 @@ export class Worker {
     }
 
     return null
+  }
+
+  async #checkStalledJobs(queues: string[]): Promise<void> {
+    const now = Date.now()
+
+    // Only check if enough time has passed since last check
+    if (now - this.#lastStalledCheck < this.#stalledInterval) {
+      return
+    }
+
+    this.#lastStalledCheck = now
+
+    for (const queue of queues) {
+      const recovered = await this.#adapter.recoverStalledJobs(
+        queue,
+        this.#stalledThreshold,
+        this.#maxStalledCount
+      )
+
+      if (recovered > 0) {
+        debug('worker %s: recovered %d stalled jobs from queue %s', this.#id, recovered, queue)
+      }
+    }
   }
 
   async #setupGracefulShutdown() {
