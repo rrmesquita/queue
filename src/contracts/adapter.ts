@@ -24,12 +24,6 @@ export interface Adapter {
   popFrom(queue: string): Promise<AcquiredJob | null>
 
   /**
-   * Blocking pop that waits for a job to be available.
-   * Supported by Redis adapter.
-   */
-  popAndWait?(queue: string, timeout: number): Promise<AcquiredJob | null>
-
-  /**
    * Mark a job as completed and remove it from active set.
    */
   completeJob(jobId: string, queue: string): Promise<void>

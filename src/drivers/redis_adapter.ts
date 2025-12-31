@@ -199,42 +199,6 @@ export class RedisAdapter implements Adapter {
     return JSON.parse(result as string)
   }
 
-  async popAndWait(queue: string, timeout: number): Promise<AcquiredJob | null> {
-    // First try immediate pop
-    const immediate = await this.popFrom(queue)
-    if (immediate) {
-      return immediate
-    }
-
-    // Wait for new job using BZPOPMIN on pending queue
-    const pendingKey = `${redisKey}::${queue}`
-    const activeKey = `${redisKey}::${queue}::active`
-    const now = Date.now()
-
-    // BZPOPMIN returns [key, member, score] or null
-    const result = await this.#connection.bzpopmin(pendingKey, timeout / 1000)
-
-    if (!result) {
-      return null
-    }
-
-    const [, jobData] = result
-    const job = JSON.parse(jobData)
-
-    // Store in active hash
-    const activeData = JSON.stringify({
-      workerId: this.#workerId,
-      acquiredAt: now,
-      data: job,
-    })
-    await this.#connection.hset(activeKey, job.id, activeData)
-
-    return {
-      ...job,
-      acquiredAt: now,
-    }
-  }
-
   async completeJob(jobId: string, queue: string): Promise<void> {
     const activeKey = `${redisKey}::${queue}::active`
 
