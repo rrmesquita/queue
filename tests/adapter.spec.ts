@@ -21,6 +21,7 @@ test.group('Adapter | Memory', (group) => {
       adapter = new MemoryAdapter()
       return adapter
     },
+    supportsConcurrency: false,
   })
 })
 

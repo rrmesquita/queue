@@ -4,6 +4,12 @@ import type { Adapter } from '../../src/contracts/adapter.js'
 interface DriverTestSuiteOptions {
   test: typeof JapaTest
   createAdapter: () => Adapter | Promise<Adapter>
+  /**
+   * Whether this adapter supports concurrent access from multiple instances.
+   * Memory adapter doesn't share state between instances, so concurrent tests are skipped.
+   * @default true
+   */
+  supportsConcurrency?: boolean
 }
 
 export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
@@ -336,4 +342,67 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.isNotNull(job2)
     assert.isNull(job3)
   })
+
+  // Concurrent tests only run for adapters that support multi-instance concurrency
+  // Memory adapter doesn't share state between instances
+  if (options.supportsConcurrency !== false) {
+    test('concurrent popFrom should not return the same job twice', async ({ assert }) => {
+      const adapter1 = await options.createAdapter()
+      const adapter2 = await options.createAdapter()
+
+      adapter1.setWorkerId('worker-1')
+      adapter2.setWorkerId('worker-2')
+
+      // Push a single job
+      await adapter1.pushOn('test-queue', {
+        id: 'job-1',
+        name: 'TestJob',
+        payload: {},
+        attempts: 0,
+      })
+
+      // Both workers try to pop simultaneously
+      const [job1, job2] = await Promise.all([
+        adapter1.popFrom('test-queue'),
+        adapter2.popFrom('test-queue'),
+      ])
+
+      // Only one worker should get the job
+      const acquiredJobs = [job1, job2].filter((job) => job !== null)
+      assert.equal(acquiredJobs.length, 1, 'Only one worker should acquire the job')
+    })
+
+    test('concurrent popFrom with multiple jobs should distribute jobs', async ({ assert }) => {
+      const adapter1 = await options.createAdapter()
+      const adapter2 = await options.createAdapter()
+
+      adapter1.setWorkerId('worker-1')
+      adapter2.setWorkerId('worker-2')
+
+      // Push multiple jobs
+      await adapter1.pushOn('test-queue', {
+        id: 'job-1',
+        name: 'TestJob',
+        payload: {},
+        attempts: 0,
+      })
+      await adapter1.pushOn('test-queue', {
+        id: 'job-2',
+        name: 'TestJob',
+        payload: {},
+        attempts: 0,
+      })
+
+      // Both workers try to pop simultaneously
+      const [job1, job2] = await Promise.all([
+        adapter1.popFrom('test-queue'),
+        adapter2.popFrom('test-queue'),
+      ])
+
+      // Both workers should get different jobs
+      assert.isNotNull(job1)
+      assert.isNotNull(job2)
+      assert.notEqual(job1!.id, job2!.id, 'Workers should acquire different jobs')
+    })
+  }
 }

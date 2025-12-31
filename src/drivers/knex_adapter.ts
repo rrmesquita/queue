@@ -106,12 +106,17 @@ export class KnexAdapter implements Adapter {
 
     // Use a transaction to atomically pop a job
     return this.#connection.transaction(async (trx) => {
-      // Select the highest priority job (lowest score)
-      const job = await trx(this.#tableName)
+      // Build the query for highest priority job (lowest score)
+      let query = trx(this.#tableName)
         .where('queue', queue)
         .where('status', 'pending')
         .orderBy('score', 'asc')
-        .first()
+
+      if (this.#supportsSkipLocked()) {
+        query = query.forUpdate().skipLocked()
+      }
+
+      const job = await query.first()
 
       if (!job) {
         return null
@@ -133,28 +138,46 @@ export class KnexAdapter implements Adapter {
     })
   }
 
+  /**
+   * Check if the database supports FOR UPDATE SKIP LOCKED.
+   * PostgreSQL 9.5+, MySQL 8.0+, and MariaDB 10.6+ support it.
+   * SQLite does not, but it's single-writer so it doesn't need it.
+   */
+  #supportsSkipLocked(): boolean {
+    const client = this.#connection.client.config.client
+    return client === 'pg' || client === 'mysql' || client === 'mysql2' || client === 'mariadb'
+  }
+
   async #processDelayedJobs(queue: string, now: number): Promise<void> {
-    // Get all ready delayed jobs
-    const delayedJobs = await this.#connection(this.#tableName)
-      .where('queue', queue)
-      .where('status', 'delayed')
-      .where('execute_at', '<=', now)
-      .select('id', 'data')
+    // Use a transaction with row locking to prevent race conditions
+    await this.#connection.transaction(async (trx) => {
+      let query = trx(this.#tableName)
+        .where('queue', queue)
+        .where('status', 'delayed')
+        .where('execute_at', '<=', now)
+        .select('id', 'data')
 
-    if (delayedJobs.length === 0) return
+      if (this.#supportsSkipLocked()) {
+        query = query.forUpdate().skipLocked()
+      }
 
-    // Move them to pending
-    for (const job of delayedJobs) {
-      const jobData: JobData = JSON.parse(job.data)
-      const priority = jobData.priority ?? 5
-      const score = priority * 1e13 + now
+      const delayedJobs = await query
 
-      await this.#connection(this.#tableName).where('id', job.id).where('queue', queue).update({
-        status: 'pending',
-        score,
-        execute_at: null,
-      })
-    }
+      if (delayedJobs.length === 0) return
+
+      // Move them to pending
+      for (const job of delayedJobs) {
+        const jobData: JobData = JSON.parse(job.data)
+        const priority = jobData.priority ?? 5
+        const score = priority * 1e13 + now
+
+        await trx(this.#tableName).where('id', job.id).where('queue', queue).update({
+          status: 'pending',
+          score,
+          execute_at: null,
+        })
+      }
+    })
   }
 
   async completeJob(jobId: string, queue: string): Promise<void> {
@@ -277,43 +300,52 @@ export class KnexAdapter implements Adapter {
 
     const now = Date.now()
     const stalledCutoff = now - stalledThreshold
-    let recovered = 0
 
-    // Get all stalled jobs
-    const stalledJobs = await this.#connection(this.#tableName)
-      .where('queue', queue)
-      .where('status', 'active')
-      .where('acquired_at', '<', stalledCutoff)
-      .select('id', 'data')
+    // Use a transaction with row locking to prevent race conditions
+    return this.#connection.transaction(async (trx) => {
+      let recovered = 0
 
-    for (const row of stalledJobs) {
-      const jobData: JobData = JSON.parse(row.data)
-      const currentStalledCount = jobData.stalledCount ?? 0
+      let query = trx(this.#tableName)
+        .where('queue', queue)
+        .where('status', 'active')
+        .where('acquired_at', '<', stalledCutoff)
+        .select('id', 'data')
 
-      if (currentStalledCount >= maxStalledCount) {
-        // Fail permanently - remove the job
-        await this.#connection(this.#tableName).where('id', row.id).where('queue', queue).delete()
-      } else {
-        // Recover: increment stalledCount and put back in pending
-        jobData.stalledCount = currentStalledCount + 1
-        const priority = jobData.priority ?? 5
-        const score = priority * 1e13 + now
-
-        await this.#connection(this.#tableName)
-          .where('id', row.id)
-          .where('queue', queue)
-          .update({
-            status: 'pending',
-            data: JSON.stringify(jobData),
-            worker_id: null,
-            acquired_at: null,
-            score,
-          })
-
-        recovered++
+      if (this.#supportsSkipLocked()) {
+        query = query.forUpdate().skipLocked()
       }
-    }
 
-    return recovered
+      const stalledJobs = await query
+
+      for (const row of stalledJobs) {
+        const jobData: JobData = JSON.parse(row.data)
+        const currentStalledCount = jobData.stalledCount ?? 0
+
+        if (currentStalledCount >= maxStalledCount) {
+          // Fail permanently - remove the job
+          await trx(this.#tableName).where('id', row.id).where('queue', queue).delete()
+        } else {
+          // Recover: increment stalledCount and put back in pending
+          jobData.stalledCount = currentStalledCount + 1
+          const priority = jobData.priority ?? 5
+          const score = priority * 1e13 + now
+
+          await trx(this.#tableName)
+            .where('id', row.id)
+            .where('queue', queue)
+            .update({
+              status: 'pending',
+              data: JSON.stringify(jobData),
+              worker_id: null,
+              acquired_at: null,
+              score,
+            })
+
+          recovered++
+        }
+      }
+
+      return recovered
+    })
   }
 }
