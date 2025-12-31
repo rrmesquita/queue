@@ -11,6 +11,7 @@
     ".": "./build/index.js",
     "./drivers/*": "./build/src/drivers/*.js",
     "./contracts/*": "./build/src/contracts/*.js",
+    "./types": "./build/src/types/index.js",
     "./types/*": "./build/src/types/*.js"
   },
   "scripts": {
