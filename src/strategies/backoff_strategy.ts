@@ -4,14 +4,64 @@ import { parse } from '../utils.js'
 import { RuntimeException } from '@poppinss/utils'
 import { assertUnreachable } from '@poppinss/utils/assert'
 
+/**
+ * Calculates retry delays using configurable strategies.
+ *
+ * Supports three built-in strategies:
+ * - `exponential`: Delay doubles each attempt (1s, 2s, 4s, 8s, ...)
+ * - `linear`: Delay increases linearly (5s, 10s, 15s, 20s, ...)
+ * - `fixed`: Same delay every time (10s, 10s, 10s, ...)
+ *
+ * All strategies support:
+ * - `maxDelay`: Cap the maximum delay
+ * - `jitter`: Add randomness to prevent thundering herd
+ *
+ * @example
+ * ```typescript
+ * const strategy = new BackoffStrategy({
+ *   strategy: 'exponential',
+ *   baseDelay: '1s',
+ *   maxDelay: '5m',
+ *   multiplier: 2,
+ *   jitter: true,
+ * })
+ *
+ * strategy.calculateDelay(1) // ~1000ms
+ * strategy.calculateDelay(2) // ~2000ms
+ * strategy.calculateDelay(3) // ~4000ms
+ * ```
+ */
 export class BackoffStrategy {
   readonly #config: BackoffConfig
 
+  /**
+   * Create a new backoff strategy.
+   *
+   * @param config - Backoff configuration
+   * @throws {E_INVALID_BASE_DELAY} If baseDelay is not positive
+   * @throws {E_INVALID_MAX_DELAY} If maxDelay is invalid
+   * @throws {E_INVALID_MULTIPLIER} If multiplier is invalid
+   */
   constructor(config: BackoffConfig) {
     this.#config = config
     this.#validateConfig()
   }
 
+  /**
+   * Calculate the delay for a given attempt number.
+   *
+   * @param attempt - The attempt number (1-based)
+   * @returns Delay in milliseconds
+   * @throws {RuntimeException} If attempt is less than 1
+   *
+   * @example
+   * ```typescript
+   * // Exponential: 1s, 2s, 4s, 8s, 16s, ...
+   * strategy.calculateDelay(1) // 1000
+   * strategy.calculateDelay(2) // 2000
+   * strategy.calculateDelay(3) // 4000
+   * ```
+   */
   calculateDelay(attempt: number): number {
     if (attempt < 1) {
       throw new RuntimeException('Attempt number must be >= 1')
@@ -47,11 +97,28 @@ export class BackoffStrategy {
     return Math.floor(delay)
   }
 
+  /**
+   * Get the Date when the next retry should occur.
+   *
+   * @param attempt - The attempt number (1-based)
+   * @returns Date for the next retry
+   *
+   * @example
+   * ```typescript
+   * const nextRetry = strategy.getNextRetryAt(3)
+   * console.log(`Retry at: ${nextRetry.toISOString()}`)
+   * ```
+   */
   getNextRetryAt(attempt: number): Date {
     const delay = this.calculateDelay(attempt)
     return new Date(Date.now() + delay)
   }
 
+  /**
+   * Get a frozen copy of the configuration.
+   *
+   * @returns Readonly configuration object
+   */
   getConfig(): Readonly<BackoffConfig> {
     return Object.freeze({ ...this.#config })
   }
@@ -100,6 +167,30 @@ export class BackoffStrategy {
   }
 }
 
+/**
+ * Create an exponential backoff strategy factory.
+ *
+ * Delay doubles with each attempt: 1s → 2s → 4s → 8s → ...
+ *
+ * Default config:
+ * - baseDelay: 1s
+ * - maxDelay: 5m
+ * - multiplier: 2
+ * - jitter: true
+ *
+ * @param config - Optional overrides for default config
+ * @returns Factory function for creating BackoffStrategy instances
+ *
+ * @example
+ * ```typescript
+ * const config = {
+ *   retry: {
+ *     maxRetries: 5,
+ *     backoff: exponentialBackoff({ baseDelay: '500ms', maxDelay: '1m' }),
+ *   },
+ * }
+ * ```
+ */
 export function exponentialBackoff(config?: Partial<Omit<BackoffConfig, 'strategy'>>) {
   return () =>
     new BackoffStrategy({
@@ -112,6 +203,28 @@ export function exponentialBackoff(config?: Partial<Omit<BackoffConfig, 'strateg
     })
 }
 
+/**
+ * Create a linear backoff strategy factory.
+ *
+ * Delay increases linearly: 5s → 10s → 15s → 20s → ...
+ *
+ * Default config:
+ * - baseDelay: 5s
+ * - maxDelay: 2m
+ *
+ * @param config - Optional overrides for default config
+ * @returns Factory function for creating BackoffStrategy instances
+ *
+ * @example
+ * ```typescript
+ * const config = {
+ *   retry: {
+ *     maxRetries: 3,
+ *     backoff: linearBackoff({ baseDelay: '10s' }),
+ *   },
+ * }
+ * ```
+ */
 export function linearBackoff(config?: Partial<Omit<BackoffConfig, 'strategy'>>) {
   return () =>
     new BackoffStrategy({
@@ -122,6 +235,24 @@ export function linearBackoff(config?: Partial<Omit<BackoffConfig, 'strategy'>>)
     })
 }
 
+/**
+ * Create a fixed delay backoff strategy factory.
+ *
+ * Same delay every time: 10s → 10s → 10s → ...
+ *
+ * @param delay - The fixed delay (default: '10s')
+ * @returns Factory function for creating BackoffStrategy instances
+ *
+ * @example
+ * ```typescript
+ * const config = {
+ *   retry: {
+ *     maxRetries: 3,
+ *     backoff: fixedBackoff('30s'),
+ *   },
+ * }
+ * ```
+ */
 export function fixedBackoff(delay: Duration = '10s') {
   return () =>
     new BackoffStrategy({
@@ -130,6 +261,30 @@ export function fixedBackoff(delay: Duration = '10s') {
     })
 }
 
+/**
+ * Create a custom backoff strategy factory.
+ *
+ * Use this when you need full control over the configuration.
+ *
+ * @param config - Complete backoff configuration
+ * @returns Factory function for creating BackoffStrategy instances
+ *
+ * @example
+ * ```typescript
+ * const config = {
+ *   retry: {
+ *     maxRetries: 5,
+ *     backoff: customBackoff({
+ *       strategy: 'exponential',
+ *       baseDelay: '100ms',
+ *       maxDelay: '30s',
+ *       multiplier: 3,
+ *       jitter: false,
+ *     }),
+ *   },
+ * }
+ * ```
+ */
 export function customBackoff(config: BackoffConfig) {
   return () => new BackoffStrategy(config)
 }

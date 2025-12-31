@@ -17,6 +17,37 @@ import {
   DEFAULT_ERROR_RETRY_DELAY,
 } from './constants.js'
 
+/**
+ * Job processing worker.
+ *
+ * The Worker continuously polls queues for jobs and executes them
+ * with configurable concurrency. It handles:
+ * - Concurrent job execution via JobPool
+ * - Automatic retries with backoff strategies
+ * - Stalled job detection and recovery
+ * - Graceful shutdown on SIGINT/SIGTERM
+ *
+ * @example
+ * ```typescript
+ * import { Worker, redis } from '@boringnode/queue'
+ *
+ * const worker = new Worker({
+ *   default: 'redis',
+ *   adapters: { redis: redis() },
+ *   locations: ['./jobs/**\/*.js'],
+ *   worker: {
+ *     concurrency: 5,
+ *     idleDelay: '1s',
+ *   },
+ * })
+ *
+ * // Start processing jobs
+ * await worker.start(['default', 'emails'])
+ *
+ * // Or for testing, process one cycle at a time
+ * const cycle = await worker.processCycle(['default'])
+ * ```
+ */
 export class Worker {
   readonly #id: string
   readonly #config: QueueManagerConfig
@@ -36,10 +67,16 @@ export class Worker {
   #lastStalledCheck = 0
   #shutdownHandler?: () => Promise<void>
 
+  /** Unique identifier for this worker instance */
   get id() {
     return this.#id
   }
 
+  /**
+   * Create a new worker instance.
+   *
+   * @param config - Queue configuration including adapter and worker settings
+   */
   constructor(config: QueueManagerConfig) {
     this.#config = config
     this.#id = randomUUID()
@@ -56,6 +93,11 @@ export class Worker {
     debug('created worker with id %s and config %O', this.#id, config)
   }
 
+  /**
+   * Initialize the worker (called automatically by `start()`).
+   *
+   * Sets up the QueueManager and adapter connection.
+   */
   async init() {
     if (this.#initialized) {
       return
@@ -73,6 +115,23 @@ export class Worker {
     debug('worker %s initialized', this.#id)
   }
 
+  /**
+   * Start processing jobs from the specified queues.
+   *
+   * This method blocks until the worker is stopped (via `stop()` or signal).
+   * Jobs are processed concurrently up to the configured concurrency limit.
+   *
+   * @param queues - Queue names to process (default: ['default'])
+   *
+   * @example
+   * ```typescript
+   * // Process single queue
+   * await worker.start()
+   *
+   * // Process multiple queues (priority order)
+   * await worker.start(['high-priority', 'default', 'low-priority'])
+   * ```
+   */
   async start(queues: string[] = ['default']): Promise<void> {
     await this.init()
 
@@ -107,6 +166,12 @@ export class Worker {
     }
   }
 
+  /**
+   * Stop the worker gracefully.
+   *
+   * Waits for all running jobs to complete before shutting down.
+   * Called automatically on SIGINT/SIGTERM if gracefulShutdown is enabled.
+   */
   async stop() {
     debug('stopping worker %s', this.#id)
 
@@ -124,6 +189,27 @@ export class Worker {
     this.#removeShutdownHandlers()
   }
 
+  /**
+   * Process a single cycle and return the result.
+   *
+   * Useful for testing or when you need fine-grained control.
+   * Each cycle may start new jobs, complete a job, or return idle.
+   *
+   * @param queues - Queue names to process
+   * @returns The cycle result, or null if the worker was stopped
+   *
+   * @example
+   * ```typescript
+   * const worker = new Worker(config)
+   *
+   * // Process cycles manually
+   * let cycle = await worker.processCycle(['default'])
+   * while (cycle) {
+   *   console.log('Cycle:', cycle.type)
+   *   cycle = await worker.processCycle(['default'])
+   * }
+   * ```
+   */
   async processCycle(queues: string[]): Promise<WorkerCycle | null> {
     await this.init()
 
@@ -143,6 +229,35 @@ export class Worker {
     return result.value
   }
 
+  /**
+   * Generator that yields worker cycle events.
+   *
+   * Low-level API for processing jobs. Yields events for:
+   * - `started`: A new job began execution
+   * - `completed`: A job finished (success or failure)
+   * - `idle`: No jobs available, suggest waiting
+   * - `error`: An error occurred during processing
+   *
+   * @param queues - Queue names to process
+   * @yields WorkerCycle events
+   *
+   * @example
+   * ```typescript
+   * for await (const cycle of worker.process(['default'])) {
+   *   switch (cycle.type) {
+   *     case 'started':
+   *       console.log(`Started job ${cycle.job.id}`)
+   *       break
+   *     case 'completed':
+   *       console.log(`Completed job ${cycle.job.id}`)
+   *       break
+   *     case 'idle':
+   *       await sleep(cycle.suggestedDelay)
+   *       break
+   *   }
+   * }
+   * ```
+   */
   async *process(queues: string[]): AsyncGenerator<WorkerCycle, void, unknown> {
     this.#pool = new JobPool()
 

@@ -5,6 +5,37 @@ import { consoleLogger, type Logger } from './logger.js'
 import type { Adapter } from './contracts/adapter.js'
 import type { AdapterFactory, QueueConfig, QueueManagerConfig, RetryConfig } from './types/main.js'
 
+/**
+ * Central configuration and adapter management for the queue system.
+ *
+ * The QueueManager is responsible for:
+ * - Initializing adapters and job registration
+ * - Providing adapter instances to workers and dispatchers
+ * - Managing retry configuration across global, queue, and job levels
+ *
+ * @example
+ * ```typescript
+ * import { QueueManager, redis } from '@boringnode/queue'
+ *
+ * await QueueManager.init({
+ *   default: 'redis',
+ *   adapters: {
+ *     redis: redis({ host: 'localhost' }),
+ *   },
+ *   locations: ['./jobs/**\/*.js'],
+ *   retry: {
+ *     maxRetries: 3,
+ *     backoff: exponentialBackoff(),
+ *   },
+ * })
+ *
+ * // Get the default adapter
+ * const adapter = QueueManager.use()
+ *
+ * // Clean up when done
+ * await QueueManager.destroy()
+ * ```
+ */
 class QueueManagerSingleton {
   #initialized = false
   #defaultAdapter!: string
@@ -14,6 +45,30 @@ class QueueManagerSingleton {
   #queueConfigs: Map<string, QueueConfig> = new Map()
   #logger: Logger = consoleLogger
 
+  /**
+   * Initialize the queue system with the given configuration.
+   *
+   * This must be called before using the queue system. It:
+   * - Validates the configuration
+   * - Registers adapters
+   * - Auto-discovers and registers job classes from `locations`
+   *
+   * @param config - The queue configuration
+   * @returns This instance for chaining
+   * @throws {E_CONFIGURATION_ERROR} If the configuration is invalid
+   *
+   * @example
+   * ```typescript
+   * await QueueManager.init({
+   *   default: 'redis',
+   *   adapters: {
+   *     redis: redis(),
+   *     postgres: knex(pgConfig),
+   *   },
+   *   locations: ['./jobs/**\/*.js'],
+   * })
+   * ```
+   */
   async init(config: QueueManagerConfig) {
     debug('initializing queue manager with config: %O', config)
 
@@ -48,6 +103,27 @@ class QueueManagerSingleton {
     return this
   }
 
+  /**
+   * Get an adapter instance by name.
+   *
+   * Adapter instances are cached and reused. If no name is provided,
+   * the default adapter is returned.
+   *
+   * @param adapter - Adapter name (optional, defaults to the default adapter)
+   * @returns The adapter instance
+   * @throws {E_QUEUE_NOT_INITIALIZED} If `init()` hasn't been called
+   * @throws {E_CONFIGURATION_ERROR} If the adapter is not registered
+   * @throws {E_ADAPTER_INIT_ERROR} If the adapter factory throws
+   *
+   * @example
+   * ```typescript
+   * // Get default adapter
+   * const adapter = QueueManager.use()
+   *
+   * // Get specific adapter
+   * const redisAdapter = QueueManager.use('redis')
+   * ```
+   */
   use(adapter?: string): Adapter {
     if (!this.#initialized) {
       throw new errors.E_QUEUE_NOT_INITIALIZED()
@@ -82,7 +158,21 @@ class QueueManagerSingleton {
   }
 
   /**
-   * Priority: job > queue > global
+   * Get the merged retry configuration for a job.
+   *
+   * Configuration is merged with priority: job > queue > global.
+   * This allows specific jobs or queues to override global defaults.
+   *
+   * @param queue - The queue name
+   * @param jobRetryConfig - Optional job-level retry config
+   * @returns The merged retry configuration
+   *
+   * @example
+   * ```typescript
+   * // Global: maxRetries=3, Queue: maxRetries=5, Job: maxRetries=1
+   * // Result: maxRetries=1 (job wins)
+   * const config = QueueManager.getMergedRetryConfig('emails', { maxRetries: 1 })
+   * ```
    */
   getMergedRetryConfig(queue: string, jobRetryConfig?: RetryConfig): RetryConfig {
     const queueConfig = this.#queueConfigs.get(queue)
@@ -122,6 +212,18 @@ class QueueManagerSingleton {
     }
   }
 
+  /**
+   * Clean up all adapter instances and reset state.
+   *
+   * Call this when shutting down the application or when
+   * you need to reinitialize with a new configuration.
+   *
+   * @example
+   * ```typescript
+   * // On application shutdown
+   * await QueueManager.destroy()
+   * ```
+   */
   async destroy() {
     for (const [name, adapter] of this.#adapterInstances) {
       debug('destroying adapter "%s"', name)
@@ -132,4 +234,5 @@ class QueueManagerSingleton {
   }
 }
 
+/** Global queue manager singleton */
 export const QueueManager = new QueueManagerSingleton()
