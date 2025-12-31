@@ -11,6 +11,7 @@ export type {
   WorkerCycle,
   AdapterFactory,
   QueueManagerConfig,
+  Logger,
 } from './main.js'
 
 export type { Adapter, AcquiredJob } from '../contracts/adapter.js'

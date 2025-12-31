@@ -3,6 +3,7 @@ import * as errors from '../src/exceptions.js'
 import { QueueManager } from '../src/queue_manager.js'
 import { sync } from '../src/drivers/sync_adapter.js'
 import { exponentialBackoff } from '../src/strategies/backoff_strategy.js'
+import { MemoryLogger } from './_mocks/memory_logger.js'
 
 test.group('QueueManager', () => {
   test('should validate adapter presence', async ({ assert }) => {
@@ -78,7 +79,7 @@ test.group('QueueManager', () => {
     await QueueManager.init({
       default: 'sync',
       adapters: { sync: sync() },
-      locations: ['./jobs/**/*'],
+      locations: ['./examples/jobs/**/*'],
       retry: { maxRetries: 5, backoff: exponentialBackoff() },
     })
 
@@ -90,7 +91,7 @@ test.group('QueueManager', () => {
     await QueueManager.init({
       default: 'sync',
       adapters: { sync: sync() },
-      locations: ['./jobs/**/*'],
+      locations: ['./examples/jobs/**/*'],
       retry: { maxRetries: 5, backoff: exponentialBackoff() },
       queues: {
         email: { retry: { maxRetries: 3 } },
@@ -105,7 +106,7 @@ test.group('QueueManager', () => {
     await QueueManager.init({
       default: 'sync',
       adapters: { sync: sync() },
-      locations: ['./jobs/**/*'],
+      locations: ['./examples/jobs/**/*'],
       retry: { maxRetries: 5, backoff: exponentialBackoff() },
       queues: {
         email: { retry: { maxRetries: 3 } },
@@ -114,5 +115,61 @@ test.group('QueueManager', () => {
 
     let config = QueueManager.getMergedRetryConfig('email', { maxRetries: 2 })
     assert.equal(config.maxRetries, 2)
+  })
+
+  test('should throw E_QUEUE_NOT_INITIALIZED when use() called before init()', async ({
+    assert,
+  }) => {
+    assert.plan(2)
+
+    await QueueManager.destroy()
+
+    try {
+      QueueManager.use()
+    } catch (error) {
+      assert.instanceOf(error, errors.E_QUEUE_NOT_INITIALIZED)
+      assert.equal(
+        error.message,
+        'QueueManager is not initialized. Call QueueManager.init() before using it.'
+      )
+    }
+  })
+
+  test('should throw E_ADAPTER_INIT_ERROR when adapter factory throws', async ({ assert }) => {
+    assert.plan(2)
+
+    await QueueManager.init({
+      default: 'broken',
+      adapters: {
+        broken: () => {
+          throw new Error('Connection failed')
+        },
+      },
+    })
+
+    try {
+      QueueManager.use()
+    } catch (error) {
+      assert.instanceOf(error, errors.E_ADAPTER_INIT_ERROR)
+      assert.equal(
+        error.message,
+        'Failed to initialize adapter "broken". Reason: Connection failed'
+      )
+    }
+  })
+
+  test('should log warning when locations match no jobs', async ({ assert }) => {
+    const logger = new MemoryLogger()
+
+    await QueueManager.init({
+      default: 'sync',
+      adapters: { sync: sync() },
+      locations: ['./non-existent-path/**/*.ts'],
+      logger,
+    })
+
+    assert.equal(logger.logs.length, 1)
+    assert.equal(logger.logs[0].level, 'warn')
+    assert.include(logger.logs[0].message, 'No jobs found for locations')
   })
 })

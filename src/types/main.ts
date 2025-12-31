@@ -1,6 +1,9 @@
 import type { BackoffStrategy as BackoffStrategyClass } from '../strategies/backoff_strategy.js'
 import type { Adapter } from '../contracts/adapter.js'
+import type { Logger } from '../logger.js'
 import { Job } from '../job.js'
+
+export type { Logger }
 
 export type Duration = number | string
 
@@ -103,4 +106,5 @@ export interface QueueManagerConfig {
   queues?: Record<string, QueueConfig>
   worker?: WorkerConfig
   locations?: string[]
+  logger?: Logger
 }

@@ -1,6 +1,7 @@
 import * as errors from './exceptions.js'
 import debug from './debug.js'
 import { Locator } from './locator.js'
+import { consoleLogger, type Logger } from './logger.js'
 import type { Adapter } from './contracts/adapter.js'
 import type { AdapterFactory, QueueConfig, QueueManagerConfig, RetryConfig } from './types/main.js'
 
@@ -10,6 +11,7 @@ class QueueManagerSingleton {
   #adapterInstances: Map<string, Adapter> = new Map()
   #globalRetryConfig?: RetryConfig
   #queueConfigs: Map<string, QueueConfig> = new Map()
+  #logger: Logger = consoleLogger
 
   async init(config: QueueManagerConfig) {
     debug('initializing queue manager with config: %O', config)
@@ -21,6 +23,7 @@ class QueueManagerSingleton {
     this.#defaultAdapter = config.default
     this.#adapters = config.adapters
     this.#globalRetryConfig = config.retry
+    this.#logger = config.logger ?? consoleLogger
 
     if (config.queues) {
       for (const [queue, queueConfig] of Object.entries(config.queues)) {
