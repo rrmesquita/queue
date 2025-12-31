@@ -102,5 +102,5 @@ export interface QueueManagerConfig {
   retry?: RetryConfig
   queues?: Record<string, QueueConfig>
   worker?: WorkerConfig
-  locations: string[]
+  locations?: string[]
 }

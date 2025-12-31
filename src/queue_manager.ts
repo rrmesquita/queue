@@ -28,7 +28,9 @@ class QueueManagerSingleton {
       }
     }
 
-    await Locator.registerFromGlob(config.locations)
+    if (config.locations && config.locations.length > 0) {
+      await Locator.registerFromGlob(config.locations)
+    }
 
     return this
   }
@@ -89,10 +91,6 @@ class QueueManagerSingleton {
 
     if (!config.default) {
       throw new errors.E_CONFIGURATION_ERROR(['Default adapter must be specified'])
-    }
-
-    if (!config.locations || config.locations.length === 0) {
-      throw new errors.E_CONFIGURATION_ERROR(['Job locations must be specified'])
     }
 
     if (!config.adapters[config.default]) {

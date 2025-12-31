@@ -38,21 +38,6 @@ test.group('QueueManager', () => {
     }
   })
 
-  test('should validate locations presence', async ({ assert }) => {
-    assert.plan(2)
-
-    try {
-      await QueueManager.init({
-        default: 'sync',
-        adapters: { sync: sync() },
-        locations: [],
-      })
-    } catch (error) {
-      assert.instanceOf(error, errors.E_CONFIGURATION_ERROR)
-      assert.equal(error.message, 'Configuration error. Reason: Job locations must be specified')
-    }
-  })
-
   test('should validate that adapter is a function', async ({ assert }) => {
     assert.plan(2)
 
