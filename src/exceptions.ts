@@ -44,3 +44,21 @@ export const E_JOB_TIMEOUT = createError<[jobName: string, timeout: number]>(
   'The job "%s" has exceeded the timeout of %dms',
   'E_JOB_TIMEOUT'
 )
+
+export const E_QUEUE_NOT_INITIALIZED = createError(
+  'QueueManager is not initialized. Call QueueManager.init() before using it.',
+  'E_QUEUE_NOT_INITIALIZED',
+  500
+)
+
+export const E_ADAPTER_INIT_ERROR = createError<[adapterName: string, originalMessage: string]>(
+  'Failed to initialize adapter "%s". Reason: %s',
+  'E_ADAPTER_INIT_ERROR',
+  500
+)
+
+export const E_NO_JOBS_FOUND = createError<[patterns: string]>(
+  'No jobs found for the specified locations: %s. Verify your glob patterns match your job files.',
+  'E_NO_JOBS_FOUND',
+  500
+)

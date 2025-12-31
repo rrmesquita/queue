@@ -14,7 +14,9 @@ class LocatorSingleton {
     this.#registry.set(name, JobClass)
   }
 
-  async registerFromGlob(patterns: string[]) {
+  async registerFromGlob(patterns: string[]): Promise<number> {
+    let registered = 0
+
     for (const pattern of patterns) {
       debug('registering jobs from glob pattern: %s', pattern)
       for await (const file of glob(pattern)) {
@@ -27,12 +29,15 @@ class LocatorSingleton {
 
           if (JobClass && typeof JobClass === 'function' && JobClass.name) {
             this.register(JobClass.name, JobClass)
+            registered++
           }
         } catch (error) {
           console.warn(`Failed to load job from ${file}:`, error)
         }
       }
     }
+
+    return registered
   }
 
   get<T extends Job = Job>(name: string): JobClass<T> | undefined {

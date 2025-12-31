@@ -6,6 +6,7 @@ import type { Adapter } from './contracts/adapter.js'
 import type { AdapterFactory, QueueConfig, QueueManagerConfig, RetryConfig } from './types/main.js'
 
 class QueueManagerSingleton {
+  #initialized = false
   #defaultAdapter!: string
   #adapters: Record<string, AdapterFactory> = {}
   #adapterInstances: Map<string, Adapter> = new Map()
@@ -32,13 +33,26 @@ class QueueManagerSingleton {
     }
 
     if (config.locations && config.locations.length > 0) {
-      await Locator.registerFromGlob(config.locations)
+      const registered = await Locator.registerFromGlob(config.locations)
+
+      if (registered === 0) {
+        this.#logger.warn(
+          `No jobs found for locations: ${config.locations.join(', ')}. ` +
+            'Verify your glob patterns match your job files.'
+        )
+      }
     }
+
+    this.#initialized = true
 
     return this
   }
 
   use(adapter?: string): Adapter {
+    if (!this.#initialized) {
+      throw new errors.E_QUEUE_NOT_INITIALIZED()
+    }
+
     if (!adapter) {
       adapter = this.#defaultAdapter
     }
@@ -62,9 +76,8 @@ class QueueManagerSingleton {
       this.#adapterInstances.set(adapter, instance)
       return instance
     } catch (error) {
-      // TODO: Improve error handling
-      throw new Error()
-      // throw new errors.E_ADAPTER_ERROR(`Failed to initialize adapter "${adapter}"`, error as Error)
+      const message = error instanceof Error ? error.message : String(error)
+      throw new errors.E_ADAPTER_INIT_ERROR([adapter, message])
     }
   }
 
@@ -115,6 +128,7 @@ class QueueManagerSingleton {
       await adapter.destroy()
     }
     this.#adapterInstances.clear()
+    this.#initialized = false
   }
 }
 
