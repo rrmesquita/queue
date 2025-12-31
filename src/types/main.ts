@@ -57,10 +57,10 @@ export interface WorkerConfig {
   concurrency?: number
 
   /**
-   * How often to poll for new jobs when the queue is empty.
+   * Delay between queue polls when idle (no jobs available).
    * @default '2s'
    */
-  pollingInterval?: Duration
+  idleDelay?: Duration
 
   /**
    * Maximum duration a job can run before being timed out.

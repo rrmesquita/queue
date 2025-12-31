@@ -1,6 +1,8 @@
 import { Redis, type RedisOptions } from 'ioredis'
 import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
 import type { JobData } from '../types/main.js'
+import { DEFAULT_PRIORITY } from '../constants.js'
+import { calculateScore } from '../utils.js'
 
 const redisKey = 'jobs'
 type RedisConfig = Redis | RedisOptions
@@ -25,6 +27,8 @@ const ACQUIRE_JOB_SCRIPT = `
     for i = 1, #ready_jobs do
       local job_data = ready_jobs[i]
       local job = cjson.decode(job_data)
+      -- Score = priority * 1e13 + timestamp
+      -- Lower score = higher priority, FIFO within same priority
       local priority = job.priority or 5
       local timestamp = tonumber(now)
       local score = priority * 10000000000000 + timestamp
@@ -115,6 +119,8 @@ const RETRY_JOB_SCRIPT = `
   if retry_at and retry_at > now then
     redis.call('ZADD', delayed_key, retry_at, job_data)
   else
+    -- Score = priority * 1e13 + timestamp
+    -- Lower score = higher priority, FIFO within same priority
     local priority = job.priority or 5
     local score = priority * 10000000000000 + now
     redis.call('ZADD', pending_key, score, job_data)
@@ -164,6 +170,8 @@ const RECOVER_STALLED_JOBS_SCRIPT = `
         -- Recover: increment stalledCount and put back in pending
         job.stalledCount = current_stalled_count + 1
         local job_data = cjson.encode(job)
+        -- Score = priority * 1e13 + timestamp
+        -- Lower score = higher priority, FIFO within same priority
         local priority = job.priority or 5
         local score = priority * 10000000000000 + now
         redis.call('ZADD', pending_key, score, job_data)
@@ -297,12 +305,9 @@ export class RedisAdapter implements Adapter {
   }
 
   async pushOn(queue: string, jobData: JobData): Promise<void> {
-    const priority = jobData.priority ?? 5
-
-    // Use priority as primary score, add timestamp for FIFO order within same priority
-    // Date.now() precision is sufficient but perfect FIFO within the same millisecond is not guaranteed
+    const priority = jobData.priority ?? DEFAULT_PRIORITY
     const timestamp = Date.now()
-    const score = priority * 1e13 + timestamp
+    const score = calculateScore(priority, timestamp)
 
     await this.#connection.zadd(`${redisKey}::${queue}`, score, JSON.stringify(jobData))
   }

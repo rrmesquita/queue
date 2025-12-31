@@ -2,6 +2,8 @@ import KnexPkg from 'knex'
 import type { Knex } from 'knex'
 import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
 import type { JobData } from '../types/main.js'
+import { DEFAULT_PRIORITY } from '../constants.js'
+import { calculateScore } from '../utils.js'
 
 export interface KnexAdapterOptions {
   connection: Knex
@@ -168,8 +170,8 @@ export class KnexAdapter implements Adapter {
       // Move them to pending
       for (const job of delayedJobs) {
         const jobData: JobData = JSON.parse(job.data)
-        const priority = jobData.priority ?? 5
-        const score = priority * 1e13 + now
+        const priority = jobData.priority ?? DEFAULT_PRIORITY
+        const score = calculateScore(priority, now)
 
         await trx(this.#tableName).where('id', job.id).where('queue', queue).update({
           status: 'pending',
@@ -223,8 +225,8 @@ export class KnexAdapter implements Adapter {
       })
     } else {
       // Move back to pending
-      const priority = jobData.priority ?? 5
-      const score = priority * 1e13 + now
+      const priority = jobData.priority ?? DEFAULT_PRIORITY
+      const score = calculateScore(priority, now)
 
       await this.#connection(this.#tableName).where('id', jobId).where('queue', queue).update({
         status: 'pending',
@@ -244,9 +246,9 @@ export class KnexAdapter implements Adapter {
   async pushOn(queue: string, jobData: JobData): Promise<void> {
     await this.#ensureTableExists()
 
-    const priority = jobData.priority ?? 5
+    const priority = jobData.priority ?? DEFAULT_PRIORITY
     const timestamp = Date.now()
-    const score = priority * 1e13 + timestamp
+    const score = calculateScore(priority, timestamp)
 
     await this.#connection(this.#tableName).insert({
       id: jobData.id,
@@ -327,8 +329,8 @@ export class KnexAdapter implements Adapter {
         } else {
           // Recover: increment stalledCount and put back in pending
           jobData.stalledCount = currentStalledCount + 1
-          const priority = jobData.priority ?? 5
-          const score = priority * 1e13 + now
+          const priority = jobData.priority ?? DEFAULT_PRIORITY
+          const score = calculateScore(priority, now)
 
           await trx(this.#tableName)
             .where('id', row.id)

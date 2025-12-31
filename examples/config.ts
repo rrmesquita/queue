@@ -28,7 +28,6 @@ export const config: QueueManagerConfig = {
 
   worker: {
     concurrency: 5,
-    pollingInterval: '10ms',
   },
 
   locations: ['./examples/jobs/**/*.ts'],

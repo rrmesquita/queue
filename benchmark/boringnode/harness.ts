@@ -54,7 +54,7 @@ export async function run(options: BenchmarkOptions): Promise<BenchmarkResult> {
     locations: [''],
     worker: {
       concurrency: options.concurrency,
-      pollingInterval: 1, // Very short polling for benchmarks
+      idleDelay: 1, // Very short delay for benchmarks
     },
   }
 

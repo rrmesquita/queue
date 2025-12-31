@@ -10,11 +10,17 @@ import type { QueueManagerConfig, WorkerCycle } from './types/main.js'
 import { Locator } from './locator.js'
 import type { JobOptions } from './types/main.js'
 import type { Job } from './job.js'
+import {
+  DEFAULT_IDLE_DELAY,
+  DEFAULT_STALLED_INTERVAL,
+  DEFAULT_STALLED_THRESHOLD,
+  DEFAULT_ERROR_RETRY_DELAY,
+} from './constants.js'
 
 export class Worker {
   readonly #id: string
   readonly #config: QueueManagerConfig
-  readonly #pollingInterval: number
+  readonly #idleDelay: number
   readonly #stalledInterval: number
   readonly #stalledThreshold: number
   readonly #maxStalledCount: number
@@ -39,9 +45,9 @@ export class Worker {
     this.#id = randomUUID()
 
     // Parse worker config once at construction
-    this.#pollingInterval = parse(config.worker?.pollingInterval ?? '2s')
-    this.#stalledInterval = parse(config.worker?.stalledInterval ?? '30s')
-    this.#stalledThreshold = parse(config.worker?.stalledThreshold ?? '30s')
+    this.#idleDelay = parse(config.worker?.idleDelay ?? DEFAULT_IDLE_DELAY)
+    this.#stalledInterval = parse(config.worker?.stalledInterval ?? DEFAULT_STALLED_INTERVAL)
+    this.#stalledThreshold = parse(config.worker?.stalledThreshold ?? DEFAULT_STALLED_THRESHOLD)
     this.#maxStalledCount = config.worker?.maxStalledCount ?? 1
     this.#concurrency = config.worker?.concurrency ?? 1
     this.#gracefulShutdown = config.worker?.gracefulShutdown ?? true
@@ -148,14 +154,18 @@ export class Worker {
         yield* this.#fillPool(queues)
 
         if (this.#pool.isEmpty()) {
-          yield { type: 'idle', suggestedDelay: this.#pollingInterval }
+          yield { type: 'idle', suggestedDelay: this.#idleDelay }
           continue
         }
 
         const completed = await this.#pool.waitForNextCompletion()
         yield { type: 'completed', queue: completed.queue, job: completed.job }
       } catch (error) {
-        yield { type: 'error', error: error as Error, suggestedDelay: parse('5s') }
+        yield {
+          type: 'error',
+          error: error as Error,
+          suggestedDelay: parse(DEFAULT_ERROR_RETRY_DELAY),
+        }
       }
     }
   }
