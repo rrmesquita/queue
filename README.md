@@ -333,6 +333,26 @@ Jobs must:
 - Implement the `execute` method
 - Be exported as default
 
+## Logging
+
+You can pass a logger to the queue manager for debugging or monitoring. The logger must be compatible with the [pino](https://github.com/pinojs/pino) interface.
+
+```typescript
+import { pino } from 'pino'
+
+const config = {
+  default: 'redis',
+  adapters: {
+    /* ... */
+  },
+  logger: pino(),
+}
+
+await QueueManager.init(config)
+```
+
+By default, a simple console logger is used that only outputs warnings and errors.
+
 ## Benchmarks
 
 Performance comparison with BullMQ using realistic jobs (5ms simulated work per job):
