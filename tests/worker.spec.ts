@@ -922,4 +922,133 @@ test.group('Worker', () => {
 
     assert.isFalse(foundJob, 'Job should not have been recovered - it exceeded maxStalledCount')
   })
+
+  test('should not process the same job multiple times with concurrency > 1', async ({
+    assert,
+    cleanup,
+  }) => {
+    const jobExecutions: Map<string, number> = new Map()
+
+    class TrackingJob extends Job<{ jobId: string }> {
+      async execute() {
+        const count = jobExecutions.get(this.payload.jobId) || 0
+        jobExecutions.set(this.payload.jobId, count + 1)
+        // Add a small delay to ensure concurrent execution window
+        await setTimeout(50)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      worker: {
+        concurrency: 5,
+      },
+    }
+
+    Locator.register('TrackingJob', TrackingJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    // Push only ONE job but with concurrency of 5
+    await sharedAdapter.push({
+      id: 'single-job',
+      name: 'TrackingJob',
+      payload: { jobId: 'job-1' },
+      attempts: 0,
+      priority: 0,
+    })
+
+    // Process until idle
+    let cycles = 0
+    const maxCycles = 20
+    while (cycles < maxCycles) {
+      const cycle = await worker.processCycle(['default'])
+      cycles++
+
+      if (cycle?.type === 'idle') {
+        break
+      }
+    }
+
+    // The job should have been executed exactly ONCE
+    assert.equal(
+      jobExecutions.get('job-1'),
+      1,
+      'Job should be executed exactly once, not multiple times due to concurrency'
+    )
+  })
+
+  test('should process each job exactly once with multiple jobs and high concurrency', async ({
+    assert,
+    cleanup,
+  }) => {
+    const jobExecutions: Map<string, number> = new Map()
+
+    class TrackingJob extends Job<{ jobId: string }> {
+      async execute() {
+        const count = jobExecutions.get(this.payload.jobId) || 0
+        jobExecutions.set(this.payload.jobId, count + 1)
+        // Add delay to create overlap window
+        await setTimeout(30)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      worker: {
+        concurrency: 5,
+      },
+    }
+
+    Locator.register('TrackingJob', TrackingJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    // Push 3 jobs with concurrency of 5
+    for (let i = 1; i <= 3; i++) {
+      await sharedAdapter.push({
+        id: `job-${i}`,
+        name: 'TrackingJob',
+        payload: { jobId: `job-${i}` },
+        attempts: 0,
+        priority: 0,
+      })
+    }
+
+    // Process until idle
+    let cycles = 0
+    const maxCycles = 30
+    while (cycles < maxCycles) {
+      const cycle = await worker.processCycle(['default'])
+      cycles++
+
+      if (cycle?.type === 'idle') {
+        break
+      }
+    }
+
+    // Each job should have been executed exactly ONCE
+    assert.equal(jobExecutions.size, 3, 'All 3 jobs should have been executed')
+    for (const [jobId, count] of jobExecutions) {
+      assert.equal(count, 1, `${jobId} should be executed exactly once`)
+    }
+  })
 })
