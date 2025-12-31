@@ -19,6 +19,8 @@ export class Worker {
   readonly #stalledThreshold: number
   readonly #maxStalledCount: number
   readonly #concurrency: number
+  readonly #gracefulShutdown: boolean
+  readonly #onShutdownSignal?: () => void | Promise<void>
 
   #adapter!: Adapter
   #running = false
@@ -26,6 +28,7 @@ export class Worker {
   #generator?: AsyncGenerator<WorkerCycle, void, unknown>
   #pool?: JobPool
   #lastStalledCheck = 0
+  #shutdownHandler?: () => Promise<void>
 
   get id() {
     return this.#id
@@ -41,6 +44,8 @@ export class Worker {
     this.#stalledThreshold = parse(config.worker?.stalledThreshold ?? '30s')
     this.#maxStalledCount = config.worker?.maxStalledCount ?? 1
     this.#concurrency = config.worker?.concurrency ?? 1
+    this.#gracefulShutdown = config.worker?.gracefulShutdown ?? true
+    this.#onShutdownSignal = config.worker?.onShutdownSignal
 
     debug('created worker with id %s and config %O', this.#id, config)
   }
@@ -74,7 +79,7 @@ export class Worker {
 
     debug('starting worker %s on queues: %O', this.#id, queues)
 
-    await this.#setupGracefulShutdown()
+    this.#setupGracefulShutdown()
 
     for await (const cycle of this.process(queues)) {
       if (['started', 'completed'].includes(cycle.type)) {
@@ -109,6 +114,8 @@ export class Worker {
     if (this.#adapter) {
       await this.#adapter.destroy()
     }
+
+    this.#removeShutdownHandlers()
   }
 
   async processCycle(queues: string[]): Promise<WorkerCycle | null> {
@@ -317,14 +324,30 @@ export class Worker {
     }
   }
 
-  async #setupGracefulShutdown() {
-    const shutdown = async () => {
-      debug('received shutdown signal, stopping worker...')
-      await this.stop()
-      process.exit(0)
+  #setupGracefulShutdown() {
+    if (!this.#gracefulShutdown) {
+      return
     }
 
-    process.on('SIGINT', shutdown)
-    process.on('SIGTERM', shutdown)
+    this.#shutdownHandler = async () => {
+      debug('received shutdown signal, stopping worker...')
+
+      if (this.#onShutdownSignal) {
+        await this.#onShutdownSignal()
+      }
+
+      await this.stop()
+    }
+
+    process.on('SIGINT', this.#shutdownHandler)
+    process.on('SIGTERM', this.#shutdownHandler)
+  }
+
+  #removeShutdownHandlers() {
+    if (this.#shutdownHandler) {
+      process.off('SIGINT', this.#shutdownHandler)
+      process.off('SIGTERM', this.#shutdownHandler)
+      this.#shutdownHandler = undefined
+    }
   }
 }

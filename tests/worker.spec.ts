@@ -1051,4 +1051,58 @@ test.group('Worker', () => {
       assert.equal(count, 1, `${jobId} should be executed exactly once`)
     }
   })
+
+  test('onShutdownSignal callback is invoked on SIGTERM', async ({ assert }) => {
+    let callbackInvoked = false
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: memory() },
+      worker: {
+        gracefulShutdown: true,
+        onShutdownSignal: () => {
+          callbackInvoked = true
+        },
+      },
+    }
+
+    const worker = new Worker(localConfig)
+    const startPromise = worker.start(['default'])
+    await setTimeout(10)
+
+    // Emit SIGTERM to trigger the shutdown handler
+    process.emit('SIGTERM')
+
+    // Wait for the worker to stop
+    await Promise.race([startPromise, setTimeout(500)])
+
+    assert.isTrue(callbackInvoked, 'onShutdownSignal should be called on SIGTERM')
+  })
+
+  test('onShutdownSignal callback is invoked on SIGINT', async ({ assert }) => {
+    let callbackInvoked = false
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: memory() },
+      worker: {
+        gracefulShutdown: true,
+        onShutdownSignal: () => {
+          callbackInvoked = true
+        },
+      },
+    }
+
+    const worker = new Worker(localConfig)
+    const startPromise = worker.start(['default'])
+    await setTimeout(10)
+
+    // Emit SIGINT to trigger the shutdown handler
+    process.emit('SIGINT')
+
+    // Wait for the worker to stop
+    await Promise.race([startPromise, setTimeout(500)])
+
+    assert.isTrue(callbackInvoked, 'onShutdownSignal should be called on SIGINT')
+  })
 })

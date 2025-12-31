@@ -89,6 +89,20 @@ export interface WorkerConfig {
    * @default 1
    */
   maxStalledCount?: number
+
+  /**
+   * Whether to automatically stop the worker on SIGINT/SIGTERM signals.
+   * When enabled, the worker will wait for running jobs to complete
+   * before stopping.
+   * @default true
+   */
+  gracefulShutdown?: boolean
+
+  /**
+   * Callback invoked when a shutdown signal is received.
+   * Called before the worker starts stopping.
+   */
+  onShutdownSignal?: () => void | Promise<void>
 }
 
 export type WorkerCycle =
