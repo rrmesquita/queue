@@ -746,8 +746,8 @@ test.group('Worker', () => {
 
   test('should handle job constructor that throws', async ({ assert, cleanup }) => {
     class BrokenJob extends Job {
-      constructor(payload: any) {
-        super(payload)
+      constructor(payload: any, context: any) {
+        super(payload, context)
         throw new Error('Constructor failed')
       }
 
@@ -1119,9 +1119,10 @@ test.group('Worker | jobFactory', () => {
     class SendEmailJob extends Job<{ to: string }> {
       constructor(
         payload: { to: string },
+        context: any,
         public emailService: EmailService
       ) {
-        super(payload)
+        super(payload, context)
       }
 
       async execute() {
@@ -1136,10 +1137,8 @@ test.group('Worker | jobFactory', () => {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
       locations: ['./jobs/**/*'],
-      worker: {
-        jobFactory: async (JobClass: any, payload: any) => {
-          return new JobClass(payload, emailService)
-        },
+      jobFactory: async (JobClass: any, payload: any, context: any) => {
+        return new JobClass(payload, context, emailService)
       },
     }
 
@@ -1168,9 +1167,13 @@ test.group('Worker | jobFactory', () => {
     assert.isTrue(emailService.sent, 'EmailService should have been used via injected dependency')
   })
 
-  test('should pass correct JobClass and payload to jobFactory', async ({ assert, cleanup }) => {
+  test('should pass correct JobClass, payload and context to jobFactory', async ({
+    assert,
+    cleanup,
+  }) => {
     let receivedJobClass: any
     let receivedPayload: any
+    let receivedContext: any
 
     class TestJob extends Job {
       async execute() {}
@@ -1183,12 +1186,11 @@ test.group('Worker | jobFactory', () => {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
       locations: ['./jobs/**/*'],
-      worker: {
-        jobFactory: async (JobClass: any, payload: any) => {
-          receivedJobClass = JobClass
-          receivedPayload = payload
-          return new JobClass(payload)
-        },
+      jobFactory: async (JobClass: any, payload: any, context: any) => {
+        receivedJobClass = JobClass
+        receivedPayload = payload
+        receivedContext = context
+        return new JobClass(payload, context)
       },
     }
 
@@ -1214,6 +1216,8 @@ test.group('Worker | jobFactory', () => {
 
     assert.equal(receivedJobClass, TestJob, 'Factory should receive the correct JobClass')
     assert.deepEqual(receivedPayload, expectedPayload, 'Factory should receive the correct payload')
+    assert.exists(receivedContext, 'Factory should receive the context')
+    assert.equal(receivedContext.jobId, 'test-job-factory')
   })
 
   test('should support async jobFactory for IoC resolution', async ({ assert, cleanup }) => {
@@ -1229,13 +1233,11 @@ test.group('Worker | jobFactory', () => {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
       locations: ['./jobs/**/*'],
-      worker: {
-        jobFactory: async (JobClass: any, payload: any) => {
-          // Simulate async IoC container resolution
-          await setTimeout(10)
-          asyncResolutionCompleted = true
-          return new JobClass(payload)
-        },
+      jobFactory: async (JobClass: any, payload: any, context: any) => {
+        // Simulate async IoC container resolution
+        await setTimeout(10)
+        asyncResolutionCompleted = true
+        return new JobClass(payload, context)
       },
     }
 
@@ -1304,5 +1306,312 @@ test.group('Worker | jobFactory', () => {
     await worker.processCycle(['default']) // completed
 
     assert.isTrue(executeWasCalled, 'Job should be instantiated and executed with default behavior')
+  })
+})
+
+test.group('Worker | JobContext', () => {
+  test('should expose jobId in context', async ({ assert, cleanup }) => {
+    let receivedJobId: string | undefined
+
+    class TestJob extends Job {
+      async execute() {
+        receivedJobId = this.context.jobId
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'my-unique-job-id',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.equal(receivedJobId, 'my-unique-job-id')
+  })
+
+  test('should expose attempt number in context (1-based)', async ({ assert, cleanup }) => {
+    const receivedAttempts: number[] = []
+
+    class FailingJob extends Job {
+      async execute() {
+        receivedAttempts.push(this.context.attempt)
+        throw new Error('Intentional failure')
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      retry: { maxRetries: 3 },
+    }
+
+    Locator.register('FailingJob', FailingJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'retry-job',
+      name: 'FailingJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    // First attempt
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (failed, queued for retry)
+
+    // Second attempt
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (failed, queued for retry)
+
+    // Third attempt
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (failed, queued for retry)
+
+    assert.deepEqual(receivedAttempts, [1, 2, 3])
+  })
+
+  test('should expose queue name in context', async ({ assert, cleanup }) => {
+    let receivedQueue: string | undefined
+
+    class TestJob extends Job {
+      async execute() {
+        receivedQueue = this.context.queue
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.pushOn('emails', {
+      id: 'email-job',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    await worker.processCycle(['emails']) // started
+    await worker.processCycle(['emails']) // completed
+
+    assert.equal(receivedQueue, 'emails')
+  })
+
+  test('should expose all context properties', async ({ assert, cleanup }) => {
+    let receivedContext: any
+
+    class TestJob extends Job {
+      async execute() {
+        receivedContext = this.context
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.pushOn('high-priority', {
+      id: 'context-job',
+      name: 'TestJob',
+      payload: { foo: 'bar' },
+      attempts: 2,
+      priority: 1,
+    })
+
+    await worker.processCycle(['high-priority']) // started
+    await worker.processCycle(['high-priority']) // completed
+
+    assert.equal(receivedContext.jobId, 'context-job')
+    assert.equal(receivedContext.name, 'TestJob')
+    assert.equal(receivedContext.attempt, 3) // attempts was 2, so this is attempt 3
+    assert.equal(receivedContext.queue, 'high-priority')
+    assert.equal(receivedContext.priority, 1)
+    assert.instanceOf(receivedContext.acquiredAt, Date)
+    assert.equal(receivedContext.stalledCount, 0)
+  })
+
+  test('should expose context in failed() hook', async ({ assert, cleanup }) => {
+    let contextInFailed: any
+
+    class FailingJob extends Job {
+      async execute() {
+        throw new Error('Intentional failure')
+      }
+
+      async failed() {
+        contextInFailed = this.context
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('FailingJob', FailingJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'failed-context-job',
+      name: 'FailingJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (failed)
+
+    assert.equal(contextInFailed.jobId, 'failed-context-job')
+    assert.equal(contextInFailed.attempt, 1)
+  })
+
+  test('should pass context to jobFactory', async ({ assert, cleanup }) => {
+    let factoryReceivedContext: any
+
+    class TestJob extends Job {
+      async execute() {}
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      jobFactory: async (JobClass: any, payload: any, context: any) => {
+        factoryReceivedContext = context
+        return new JobClass(payload, context)
+      },
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'factory-context-job',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      priority: 5,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.equal(factoryReceivedContext.jobId, 'factory-context-job')
+    assert.equal(factoryReceivedContext.attempt, 1)
+    assert.equal(factoryReceivedContext.queue, 'default')
+  })
+
+  test('context should be frozen (immutable)', async ({ assert, cleanup }) => {
+    let contextIsFrozen = false
+
+    class TestJob extends Job {
+      async execute() {
+        contextIsFrozen = Object.isFrozen(this.context)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'frozen-context-job',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.isTrue(contextIsFrozen, 'Context should be frozen')
   })
 })

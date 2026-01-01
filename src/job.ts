@@ -1,5 +1,5 @@
 import { JobDispatcher } from './job_dispatcher.js'
-import type { JobOptions } from './types/main.js'
+import type { JobContext, JobOptions } from './types/main.js'
 
 /**
  * Abstract base class for all queue jobs.
@@ -12,6 +12,7 @@ import type { JobOptions } from './types/main.js'
  * @example
  * ```typescript
  * import { Job } from '@boringnode/queue'
+ * import type { JobContext } from '@boringnode/queue'
  *
  * interface SendEmailPayload {
  *   to: string
@@ -25,7 +26,12 @@ import type { JobOptions } from './types/main.js'
  *     maxRetries: 3,
  *   }
  *
+ *   constructor(payload: SendEmailPayload, context: JobContext) {
+ *     super(payload, context)
+ *   }
+ *
  *   async execute() {
+ *     console.log(`Attempt ${this.context.attempt} for job ${this.context.jobId}`)
  *     await sendEmail(this.payload.to, this.payload.subject, this.payload.body)
  *   }
  *
@@ -37,6 +43,7 @@ import type { JobOptions } from './types/main.js'
  */
 export abstract class Job<Payload = any> {
   readonly #payload: Payload
+  readonly #context: JobContext
 
   /** Static options for this job class (queue, retries, timeout, etc.) */
   static options: JobOptions = {}
@@ -47,12 +54,34 @@ export abstract class Job<Payload = any> {
   }
 
   /**
+   * Context information for the current job execution.
+   *
+   * Provides metadata such as job ID, current attempt number,
+   * queue name, priority, and timing information.
+   *
+   * @example
+   * ```typescript
+   * async execute() {
+   *   if (this.context.attempt > 1) {
+   *     console.log(`Retry attempt ${this.context.attempt}`)
+   *   }
+   *   console.log(`Processing job ${this.context.jobId} on queue ${this.context.queue}`)
+   * }
+   * ```
+   */
+  get context(): JobContext {
+    return this.#context
+  }
+
+  /**
    * Create a new job instance.
    *
    * @param payload - The data to be processed by this job
+   * @param context - The job execution context (provided by the worker)
    */
-  constructor(payload: Payload) {
+  constructor(payload: Payload, context: JobContext) {
     this.#payload = payload
+    this.#context = Object.freeze(context)
   }
 
   /**
@@ -79,7 +108,7 @@ export abstract class Job<Payload = any> {
    * ```
    */
   static dispatch<T extends Job>(
-    this: new (payload: any) => T,
+    this: new (payload: any, context: JobContext) => T,
     payload: T extends Job<infer P> ? P : never
   ): JobDispatcher<T extends Job<infer P> ? P : never> {
     const dispatcher = new JobDispatcher<T extends Job<infer P> ? P : never>(

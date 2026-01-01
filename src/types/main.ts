@@ -27,17 +27,59 @@ export interface JobOptions {
   failOnTimeout?: boolean
 }
 
-export type JobClass<T extends Job = Job> = (new (payload: any) => T) & { options?: JobOptions }
+/**
+ * Context information available to a job during execution.
+ *
+ * Provides metadata about the current job execution, including
+ * retry information, queue details, and timing.
+ *
+ * @example
+ * ```typescript
+ * class MyJob extends Job<Payload> {
+ *   async execute() {
+ *     console.log(`Attempt ${this.context.attempt} of job ${this.context.jobId}`)
+ *     console.log(`Running on queue: ${this.context.queue}`)
+ *   }
+ * }
+ * ```
+ */
+export interface JobContext {
+  /** Unique identifier for this job */
+  jobId: string
+
+  /** Job class name */
+  name: string
+
+  /** Current attempt number (1-based: first attempt = 1) */
+  attempt: number
+
+  /** Queue name this job is being processed from */
+  queue: string
+
+  /** Job priority (lower number = higher priority) */
+  priority: number
+
+  /** When this job was acquired by the worker for processing */
+  acquiredAt: Date
+
+  /** Number of times this job has been recovered from stalled state */
+  stalledCount: number
+}
+
+export type JobClass<T extends Job = Job> = (new (payload: any, context: JobContext) => T) & {
+  options?: JobOptions
+}
 
 /**
  * Factory function for custom job instantiation.
  *
  * Use this to integrate with IoC containers for dependency injection.
- * The factory receives the job class and payload, and must return
+ * The factory receives the job class, payload, and context, and must return
  * a job instance (or a Promise that resolves to one).
  *
  * @param JobClass - The job class to instantiate
  * @param payload - The payload data for the job
+ * @param context - The job execution context (jobId, attempt, queue, etc.)
  * @returns The job instance, or a Promise resolving to the instance
  *
  * @example
@@ -45,14 +87,18 @@ export type JobClass<T extends Job = Job> = (new (payload: any) => T) & { option
  * // With AdonisJS IoC container
  * const worker = new Worker({
  *   worker: {
- *     jobFactory: async (JobClass, payload) => {
- *       return app.container.make(JobClass, [payload])
+ *     jobFactory: async (JobClass, payload, context) => {
+ *       return app.container.make(JobClass, [payload, context])
  *     }
  *   }
  * })
  * ```
  */
-export type JobFactory = (JobClass: JobClass, payload: any) => Job | Promise<Job>
+export type JobFactory = (
+  JobClass: JobClass,
+  payload: any,
+  context: JobContext
+) => Job | Promise<Job>
 
 export interface RetryConfig {
   maxRetries?: number
@@ -128,26 +174,6 @@ export interface WorkerConfig {
    * Called before the worker starts stopping.
    */
   onShutdownSignal?: () => void | Promise<void>
-
-  /**
-   * Custom factory function for job instantiation.
-   *
-   * Use this to integrate with IoC containers for dependency injection.
-   * When provided, this factory is called instead of `new JobClass(payload)`.
-   *
-   * @example
-   * ```typescript
-   * const worker = new Worker({
-   *   worker: {
-   *     jobFactory: async (JobClass, payload) => {
-   *       // Inject dependencies via IoC container
-   *       return app.container.make(JobClass, [payload])
-   *     }
-   *   }
-   * })
-   * ```
-   */
-  jobFactory?: JobFactory
 }
 
 export type WorkerCycle =
@@ -166,4 +192,23 @@ export interface QueueManagerConfig {
   worker?: WorkerConfig
   locations?: string[]
   logger?: Logger
+
+  /**
+   * Custom factory function for job instantiation.
+   *
+   * Use this to integrate with IoC containers for dependency injection.
+   * When provided, this factory is called instead of `new JobClass(payload, context)`.
+   *
+   * @example
+   * ```typescript
+   * await QueueManager.init({
+   *   default: 'redis',
+   *   adapters: { redis: redis() },
+   *   jobFactory: async (JobClass, payload, context) => {
+   *     return app.container.make(JobClass, [payload, context])
+   *   }
+   * })
+   * ```
+   */
+  jobFactory?: JobFactory
 }

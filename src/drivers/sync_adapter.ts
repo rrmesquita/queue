@@ -1,7 +1,12 @@
 import { Locator } from '../locator.js'
+import { QueueManager } from '../queue_manager.js'
 import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
-import type { JobData } from '../types/main.js'
+import type { JobContext, JobData } from '../types/main.js'
+import { DEFAULT_PRIORITY } from '../constants.js'
 
+/**
+ * Create a sync adapter factory.
+ */
 export function sync() {
   return () => new SyncAdapter()
 }
@@ -17,17 +22,17 @@ export class SyncAdapter implements Adapter {
     return this.pushOn('default', jobData)
   }
 
-  pushOn(_queue: string, jobData: JobData): Promise<void> {
-    return this.#execute(jobData.name, jobData.payload)
+  pushOn(queue: string, jobData: JobData): Promise<void> {
+    return this.#execute(jobData.name, jobData.payload, queue)
   }
 
   pushLater(jobData: JobData, delay: number): Promise<void> {
     return this.pushLaterOn('default', jobData, delay)
   }
 
-  pushLaterOn(_queue: string, jobData: JobData, delay: number): Promise<void> {
+  pushLaterOn(queue: string, jobData: JobData, delay: number): Promise<void> {
     setTimeout(() => {
-      void this.#execute(jobData.name, jobData.payload)
+      void this.#execute(jobData.name, jobData.payload, queue)
     }, delay)
 
     return Promise.resolve()
@@ -74,14 +79,28 @@ export class SyncAdapter implements Adapter {
     return Promise.resolve()
   }
 
-  async #execute(jobName: string, payload: any): Promise<any> {
+  async #execute(jobName: string, payload: any, queue: string = 'default'): Promise<any> {
     const JobClass = Locator.get(jobName)
 
     if (!JobClass) {
       throw new Error(`Job class ${jobName} not found.`)
     }
 
-    const jobInstance = new JobClass(payload)
+    const context: JobContext = Object.freeze({
+      jobId: `sync-${Date.now()}`,
+      name: jobName,
+      attempt: 1,
+      queue,
+      priority: DEFAULT_PRIORITY,
+      acquiredAt: new Date(),
+      stalledCount: 0,
+    })
+
+    const jobFactory = QueueManager.getJobFactory()
+    const jobInstance = jobFactory
+      ? await jobFactory(JobClass, payload, context)
+      : new JobClass(payload, context)
+
     await jobInstance.execute()
   }
 }

@@ -3,7 +3,13 @@ import debug from './debug.js'
 import { Locator } from './locator.js'
 import { consoleLogger, type Logger } from './logger.js'
 import type { Adapter } from './contracts/adapter.js'
-import type { AdapterFactory, QueueConfig, QueueManagerConfig, RetryConfig } from './types/main.js'
+import type {
+  AdapterFactory,
+  JobFactory,
+  QueueConfig,
+  QueueManagerConfig,
+  RetryConfig,
+} from './types/main.js'
 
 /**
  * Central configuration and adapter management for the queue system.
@@ -44,6 +50,7 @@ class QueueManagerSingleton {
   #globalRetryConfig?: RetryConfig
   #queueConfigs: Map<string, QueueConfig> = new Map()
   #logger: Logger = consoleLogger
+  #jobFactory?: JobFactory
 
   /**
    * Initialize the queue system with the given configuration.
@@ -80,6 +87,7 @@ class QueueManagerSingleton {
     this.#adapters = config.adapters
     this.#globalRetryConfig = config.retry
     this.#logger = config.logger ?? consoleLogger
+    this.#jobFactory = config.jobFactory
 
     if (config.queues) {
       for (const [queue, queueConfig] of Object.entries(config.queues)) {
@@ -188,6 +196,15 @@ class QueueManagerSingleton {
       jobRetryConfig?.backoff || queueRetryConfig.backoff || this.#globalRetryConfig?.backoff
 
     return { maxRetries, backoff }
+  }
+
+  /**
+   * Get the configured job factory for custom instantiation.
+   *
+   * @returns The job factory function, or undefined if not configured
+   */
+  getJobFactory(): JobFactory | undefined {
+    return this.#jobFactory
   }
 
   #validateConfig(config: QueueManagerConfig): void {

@@ -3,6 +3,8 @@ export type {
   JobData,
   JobOptions,
   JobClass,
+  JobContext,
+  JobFactory,
   RetryConfig,
   BackoffStrategy,
   BackoffConfig,
