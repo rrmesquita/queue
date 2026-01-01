@@ -1,5 +1,15 @@
 # @boringnode/queue
 
+<div align="center">
+
+[![typescript-image]][typescript-url]
+[![gh-workflow-image]][gh-workflow-url]
+[![npm-image]][npm-url]
+[![npm-download-image]][npm-download-url]
+[![license-image]][license-url]
+
+</div>
+
 A simple and efficient queue system for Node.js applications. Built for simplicity and ease of use, `@boringnode/queue` allows you to dispatch background jobs and process them asynchronously with support for multiple queue adapters.
 
 ## Installation
@@ -475,3 +485,14 @@ npm run benchmark
 # Custom job duration
 npm run benchmark -- --duration=10
 ```
+
+[gh-workflow-image]: https://img.shields.io/github/actions/workflow/status/boringnode/queue/checks.yml?branch=main&style=for-the-badge
+[gh-workflow-url]: https://github.com/boringnode/queue/actions/workflows/checks.yml
+[npm-image]: https://img.shields.io/npm/v/@boringnode/queue.svg?style=for-the-badge&logo=npm
+[npm-url]: https://www.npmjs.com/package/@boringnode/queue
+[npm-download-image]: https://img.shields.io/npm/dm/@boringnode/queue?style=for-the-badge
+[npm-download-url]: https://www.npmjs.com/package/@boringnode/queue
+[typescript-image]: https://img.shields.io/badge/Typescript-294E80.svg?style=for-the-badge&logo=typescript
+[typescript-url]: https://www.typescriptlang.org
+[license-image]: https://img.shields.io/npm/l/@boringnode/queue?color=blueviolet&style=for-the-badge
+[license-url]: LICENSE.md
