@@ -1,6 +1,6 @@
 import { setTimeout } from 'node:timers/promises'
 import { Job } from '../../src/job.js'
-import type { JobOptions } from '../../src/types/main.js'
+import type { JobOptions } from '../../src/types/index.js'
 
 interface SendEmailPayload {
   to: string
@@ -15,6 +15,6 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
 
   async execute(): Promise<void> {
     await setTimeout(1000)
-    console.log(`Sending email to: ${this.payload.to}`)
+    console.log(`[Attempt ${this.context.attempt}] Sending email to: ${this.payload.to}`)
   }
 }

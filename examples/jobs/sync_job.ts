@@ -1,6 +1,6 @@
 import { setTimeout } from 'node:timers/promises'
 import { Job } from '../../src/job.js'
-import type { JobOptions } from '../../src/types/main.js'
+import type { JobOptions } from '../../src/types/index.js'
 
 interface SyncJobPayload {
   source: string
@@ -15,6 +15,6 @@ export default class SyncJob extends Job<SyncJobPayload> {
 
   async execute(): Promise<void> {
     await setTimeout(1000)
-    console.log(`Syncing data from source: ${this.payload.source}`)
+    console.log(`[Job ${this.context.jobId}] Syncing data from source: ${this.payload.source}`)
   }
 }

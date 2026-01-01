@@ -28,7 +28,7 @@ Create a job by extending the `Job` class:
 
 ```typescript
 import { Job } from '@boringnode/queue'
-import type { JobOptions } from '@boringnode/queue/types/main'
+import type { JobContext, JobOptions } from '@boringnode/queue/types'
 
 interface SendEmailPayload {
   to: string
@@ -41,8 +41,12 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
     queue: 'email',
   }
 
+  constructor(payload: SendEmailPayload, context: JobContext) {
+    super(payload, context)
+  }
+
   async execute(): Promise<void> {
-    console.log(`Sending email to: ${this.payload.to}`)
+    console.log(`[Attempt ${this.context.attempt}] Sending email to: ${this.payload.to}`)
   }
 }
 ```
@@ -227,10 +231,10 @@ Schedule jobs to run in the future:
 
 ```typescript
 // Various time formats
-await SendEmailJob.dispatch(payload).in('30s')  // 30 seconds
-await SendEmailJob.dispatch(payload).in('5m')   // 5 minutes
-await SendEmailJob.dispatch(payload).in('2h')   // 2 hours
-await SendEmailJob.dispatch(payload).in('1d')   // 1 day
+await SendEmailJob.dispatch(payload).in('30s') // 30 seconds
+await SendEmailJob.dispatch(payload).in('5m') // 5 minutes
+await SendEmailJob.dispatch(payload).in('2h') // 2 hours
+await SendEmailJob.dispatch(payload).in('1d') // 1 day
 ```
 
 ## Priority
@@ -295,7 +299,7 @@ export default class LimitedJob extends Job<Payload> {
   static readonly jobName = 'LimitedJob'
 
   static options: JobOptions = {
-    timeout: '30s',       // Maximum execution time
+    timeout: '30s', // Maximum execution time
     failOnTimeout: false, // Retry on timeout (default)
   }
 
@@ -315,22 +319,58 @@ const config = {
 }
 ```
 
+## Job Context
+
+Every job has access to execution context via `this.context`. This provides metadata about the current job execution:
+
+```typescript
+import { Job } from '@boringnode/queue'
+import type { JobContext } from '@boringnode/queue'
+
+export default class MyJob extends Job<Payload> {
+  constructor(payload: Payload, context: JobContext) {
+    super(payload, context)
+  }
+
+  async execute(): Promise<void> {
+    console.log(`Job ID: ${this.context.jobId}`)
+    console.log(`Attempt: ${this.context.attempt}`) // 1, 2, 3...
+    console.log(`Queue: ${this.context.queue}`)
+    console.log(`Priority: ${this.context.priority}`)
+    console.log(`Acquired at: ${this.context.acquiredAt}`)
+
+    if (this.context.attempt > 1) {
+      console.log('This is a retry!')
+    }
+  }
+}
+```
+
+### Context Properties
+
+| Property       | Type   | Description                                     |
+| -------------- | ------ | ----------------------------------------------- |
+| `jobId`        | string | Unique identifier for this job                  |
+| `name`         | string | Job class name                                  |
+| `attempt`      | number | Current attempt number (1-based)                |
+| `queue`        | string | Queue name this job is being processed from     |
+| `priority`     | number | Job priority (lower = higher priority)          |
+| `acquiredAt`   | Date   | When this job was acquired by the worker        |
+| `stalledCount` | number | Times this job was recovered from stalled state |
+
 ## Dependency Injection
 
 Use the `jobFactory` option to integrate with IoC containers for dependency injection. This allows your jobs to receive injected services in their constructor.
 
 ```typescript
-import { Worker } from '@boringnode/queue'
-import type { JobFactory } from '@boringnode/queue'
+import { QueueManager } from '@boringnode/queue'
 
-const worker = new Worker({
+await QueueManager.init({
   default: 'redis',
   adapters: { redis: redis(connection) },
-  worker: {
-    jobFactory: async (JobClass, payload) => {
-      // Use your IoC container to instantiate jobs
-      return app.container.make(JobClass, [payload])
-    },
+  jobFactory: async (JobClass, payload, context) => {
+    // Use your IoC container to instantiate jobs
+    return app.container.make(JobClass, [payload, context])
   },
 })
 ```
@@ -339,6 +379,7 @@ Example with injected dependencies:
 
 ```typescript
 import { Job } from '@boringnode/queue'
+import type { JobContext } from '@boringnode/queue'
 
 interface SendEmailPayload {
   to: string
@@ -350,20 +391,21 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
 
   constructor(
     payload: SendEmailPayload,
-    private mailer: MailerService,  // Injected by IoC container
-    private logger: Logger          // Injected by IoC container
+    context: JobContext,
+    private mailer: MailerService, // Injected by IoC container
+    private logger: Logger // Injected by IoC container
   ) {
-    super(payload)
+    super(payload, context)
   }
 
   async execute(): Promise<void> {
-    this.logger.info(`Sending email to ${this.payload.to}`)
+    this.logger.info(`[Attempt ${this.context.attempt}] Sending email to ${this.payload.to}`)
     await this.mailer.send(this.payload)
   }
 }
 ```
 
-Without a `jobFactory`, jobs are instantiated with `new JobClass(payload)`.
+Without a `jobFactory`, jobs are instantiated with `new JobClass(payload, context)`.
 
 ## Job Discovery
 
@@ -407,7 +449,7 @@ By default, a simple console logger is used that only outputs warnings and error
 Performance comparison with BullMQ using realistic jobs (5ms simulated work per job):
 
 | Jobs | Concurrency | @boringnode/queue | BullMQ | Diff        |
-|------|-------------|-------------------|--------|-------------|
+| ---- | ----------- | ----------------- | ------ | ----------- |
 | 100  | 1           | 562ms             | 596ms  | 5.7% faster |
 | 100  | 5           | 116ms             | 117ms  | ~same       |
 | 100  | 10          | 62ms              | 62ms   | ~same       |

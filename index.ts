@@ -9,5 +9,3 @@ export {
   fixedBackoff,
 } from './src/strategies/backoff_strategy.js'
 export * as errors from './src/exceptions.js'
-
-export type { JobFactory } from './src/types/main.js'
