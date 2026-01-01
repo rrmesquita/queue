@@ -29,6 +29,7 @@ npm install @boringnode/queue
 - **Priority Queues**: Process high-priority jobs first
 - **Retry with Backoff**: Automatic retries with exponential, linear, or fixed backoff strategies
 - **Job Timeout**: Automatically fail or retry jobs that exceed a time limit
+- **Repeating Jobs**: Schedule jobs to repeat at fixed intervals
 
 ## Quick Start
 
@@ -49,10 +50,6 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
 
   static options: JobOptions = {
     queue: 'email',
-  }
-
-  constructor(payload: SendEmailPayload, context: JobContext) {
-    super(payload, context)
   }
 
   async execute(): Promise<void> {
@@ -135,7 +132,7 @@ interface QueueManagerConfig {
   // Worker configuration
   worker: {
     concurrency: number
-    pollingInterval: string
+    idleDelay: Duration
   }
 
   // Job discovery locations
@@ -242,9 +239,9 @@ Schedule jobs to run in the future:
 ```typescript
 // Various time formats
 await SendEmailJob.dispatch(payload).in('30s') // 30 seconds
-await SendEmailJob.dispatch(payload).in('5m') // 5 minutes
-await SendEmailJob.dispatch(payload).in('2h') // 2 hours
-await SendEmailJob.dispatch(payload).in('1d') // 1 day
+await SendEmailJob.dispatch(payload).in('5m')  // 5 minutes
+await SendEmailJob.dispatch(payload).in('2h')  // 2 hours
+await SendEmailJob.dispatch(payload).in('1d')  // 1 day
 ```
 
 ## Priority
@@ -358,15 +355,18 @@ export default class MyJob extends Job<Payload> {
 
 ### Context Properties
 
-| Property       | Type   | Description                                     |
-| -------------- | ------ | ----------------------------------------------- |
-| `jobId`        | string | Unique identifier for this job                  |
-| `name`         | string | Job class name                                  |
-| `attempt`      | number | Current attempt number (1-based)                |
-| `queue`        | string | Queue name this job is being processed from     |
-| `priority`     | number | Job priority (lower = higher priority)          |
-| `acquiredAt`   | Date   | When this job was acquired by the worker        |
-| `stalledCount` | number | Times this job was recovered from stalled state |
+| Property          | Type                | Description                                       |
+|-------------------|---------------------|---------------------------------------------------|
+| `jobId`           | string              | Unique identifier for this job                    |
+| `name`            | string              | Job class name                                    |
+| `attempt`         | number              | Current attempt number (1-based)                  |
+| `queue`           | string              | Queue name this job is being processed from       |
+| `priority`        | number              | Job priority (lower = higher priority)            |
+| `acquiredAt`      | Date                | When this job was acquired by the worker          |
+| `stalledCount`    | number              | Times this job was recovered from stalled state   |
+| `isRepeating`     | boolean             | Whether this job is configured to repeat          |
+| `repeatRemaining` | number \| undefined | Remaining repetitions (undefined = infinite)      |
+| `repeatId`        | string \| undefined | Unique ID for the repeat chain (for cancellation) |
 
 ## Dependency Injection
 
@@ -417,6 +417,88 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
 
 Without a `jobFactory`, jobs are instantiated with `new JobClass(payload, context)`.
 
+## Repeating Jobs
+
+Schedule jobs to repeat automatically at fixed intervals:
+
+```typescript
+// Repeat every 5 seconds indefinitely
+await SyncJob.dispatch({ source: 'api' }).every('5s')
+
+// Repeat every hour, 10 times total
+await CleanupJob.dispatch({ days: 30 }).every('1h').times(10)
+
+// Combine with delay (start after 30 seconds, then repeat every minute)
+await ReportJob.dispatch({ type: 'daily' }).in('30s').every('1m')
+```
+
+### Cancelling a Repeating Job
+
+When dispatching a repeating job, you receive a `repeatId` that can be used to cancel the entire repeat chain from anywhere:
+
+```typescript
+import { QueueManager } from '@boringnode/queue'
+
+// Dispatch returns jobId and repeatId
+const { jobId, repeatId } = await SyncJob.dispatch({ source: 'api' }).every('5s')
+
+console.log(`Started repeating job ${jobId} with repeat chain ${repeatId}`)
+
+// Later, cancel the repeat chain from anywhere
+if (repeatId) {
+  await QueueManager.cancelRepeat(repeatId)
+}
+```
+
+The `repeatId` is also available inside the job via `this.context.repeatId`.
+
+### Stopping from Within the Job
+
+A job can stop its own repetition by calling `this.stopRepeating()`:
+
+```typescript
+import { Job } from '@boringnode/queue'
+import type { JobContext } from '@boringnode/queue/types'
+
+export default class SyncJob extends Job<SyncPayload> {
+  static readonly jobName = 'SyncJob'
+
+  async execute(): Promise<void> {
+    const result = await this.syncData()
+
+    // Stop repeating when sync is complete
+    if (result.isComplete) {
+      this.stopRepeating()
+    }
+  }
+}
+```
+
+### Repeat Context
+
+Jobs have access to repeat information via `this.context`:
+
+```typescript
+async execute(): Promise<void> {
+  if (this.context.isRepeating) {
+    console.log(`Repeating job, ${this.context.repeatRemaining ?? 'infinite'} runs remaining`)
+  }
+}
+```
+
+| Property          | Type                | Description                                       |
+|-------------------|---------------------|---------------------------------------------------|
+| `isRepeating`     | boolean             | Whether this job is configured to repeat          |
+| `repeatRemaining` | number \| undefined | Remaining repetitions (undefined = infinite)      |
+| `repeatId`        | string \| undefined | Unique ID for the repeat chain (for cancellation) |
+
+### How Repeating Works
+
+- Each repeat creates a **new job** with a new ID
+- The payload is **preserved** across repeats
+- Failed jobs do **not** repeat (only successful completions trigger the next run)
+- The repeat interval is the delay **between** job completions
+
 ## Job Discovery
 
 The queue manager automatically discovers and registers jobs from the specified locations:
@@ -459,7 +541,7 @@ By default, a simple console logger is used that only outputs warnings and error
 Performance comparison with BullMQ using realistic jobs (5ms simulated work per job):
 
 | Jobs | Concurrency | @boringnode/queue | BullMQ | Diff        |
-| ---- | ----------- | ----------------- | ------ | ----------- |
+|------|-------------|-------------------|--------|-------------|
 | 100  | 1           | 562ms             | 596ms  | 5.7% faster |
 | 100  | 5           | 116ms             | 117ms  | ~same       |
 | 100  | 10          | 62ms              | 62ms   | ~same       |

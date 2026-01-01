@@ -1614,4 +1614,801 @@ test.group('Worker | JobContext', () => {
 
     assert.isTrue(contextIsFrozen, 'Context should be frozen')
   })
+
+  test('should expose isRepeating=false for non-repeating jobs', async ({ assert, cleanup }) => {
+    let receivedIsRepeating: boolean | undefined
+
+    class TestJob extends Job {
+      async execute() {
+        receivedIsRepeating = this.context.isRepeating
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'non-repeat-job',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.isFalse(receivedIsRepeating)
+  })
+
+  test('should expose isRepeating=true for repeating jobs', async ({ assert, cleanup }) => {
+    let receivedIsRepeating: boolean | undefined
+    let receivedRepeatRemaining: number | undefined
+
+    class TestJob extends Job {
+      async execute() {
+        receivedIsRepeating = this.context.isRepeating
+        receivedRepeatRemaining = this.context.repeatRemaining
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'repeat-job',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 1000,
+        remaining: 5,
+      },
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.isTrue(receivedIsRepeating)
+    assert.equal(receivedRepeatRemaining, 5)
+  })
+})
+
+test.group('Worker | Repeating Jobs', () => {
+  test('should re-dispatch job after successful completion with repeat config', async ({
+    assert,
+    cleanup,
+  }) => {
+    let executionCount = 0
+
+    class RepeatJob extends Job {
+      async execute() {
+        executionCount++
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    // Push a job that should repeat indefinitely (remaining = undefined)
+    await sharedAdapter.push({
+      id: 'repeat-job-1',
+      name: 'RepeatJob',
+      payload: { count: 1 },
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 100,
+      },
+    })
+
+    // First execution
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.equal(executionCount, 1)
+
+    // Wait for the delay and check the job was re-dispatched
+    await setTimeout(150)
+
+    // Second execution
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.equal(executionCount, 2)
+  })
+
+  test('should decrement remaining count on each repeat', async ({ assert, cleanup }) => {
+    const remainingCounts: (number | undefined)[] = []
+
+    class RepeatJob extends Job {
+      async execute() {
+        remainingCounts.push(this.context.repeatRemaining)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    // Push a job that should repeat 3 times total (remaining = 2 after first run)
+    await sharedAdapter.push({
+      id: 'repeat-job-2',
+      name: 'RepeatJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 50,
+        remaining: 2, // 2 more after the first run = 3 total
+      },
+    })
+
+    // First execution (remaining = 2)
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    await setTimeout(100)
+
+    // Second execution (remaining = 1)
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    await setTimeout(100)
+
+    // Third execution (remaining = 0)
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    await setTimeout(100)
+
+    // Should be idle now - no more repeats
+    const cycle = await worker.processCycle(['default'])
+
+    assert.deepEqual(remainingCounts, [2, 1, 0])
+    // @ts-ignore
+    assert.equal(cycle.type, 'idle')
+  })
+
+  test('should stop repeating when remaining reaches 0', async ({ assert, cleanup }) => {
+    let executionCount = 0
+
+    class RepeatJob extends Job {
+      async execute() {
+        executionCount++
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    // Push a job that should run exactly once (remaining = 0)
+    await sharedAdapter.push({
+      id: 'repeat-job-3',
+      name: 'RepeatJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 50,
+        remaining: 0, // Last run
+      },
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    await setTimeout(100)
+
+    // Should be idle - no more repeats
+    const cycle = await worker.processCycle(['default'])
+
+    assert.equal(executionCount, 1)
+    // @ts-ignore
+    assert.equal(cycle.type, 'idle')
+  })
+
+  test('should allow job to stop repeating via stopRepeating()', async ({ assert, cleanup }) => {
+    let executionCount = 0
+
+    class RepeatJob extends Job {
+      async execute() {
+        executionCount++
+        if (executionCount >= 2) {
+          this.stopRepeating()
+        }
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    // Push a job that would repeat indefinitely
+    await sharedAdapter.push({
+      id: 'repeat-job-4',
+      name: 'RepeatJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 50,
+      },
+    })
+
+    // First execution
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    await setTimeout(100)
+
+    // Second execution - will call stopRepeating()
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    await setTimeout(100)
+
+    // Should be idle - job stopped itself
+    const cycle = await worker.processCycle(['default'])
+
+    assert.equal(executionCount, 2)
+    // @ts-ignore
+    assert.equal(cycle.type, 'idle')
+  })
+
+  test('should not repeat when job fails', async ({ assert, cleanup }) => {
+    let executionCount = 0
+
+    class FailingRepeatJob extends Job {
+      async execute() {
+        executionCount++
+        throw new Error('Job failed')
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('FailingRepeatJob', FailingRepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'failing-repeat-job',
+      name: 'FailingRepeatJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 50,
+      },
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (failed)
+
+    await setTimeout(100)
+
+    // Should be idle - failed jobs don't repeat
+    const cycle = await worker.processCycle(['default'])
+
+    assert.equal(executionCount, 1)
+    // @ts-ignore
+    assert.equal(cycle.type, 'idle')
+  })
+
+  test('should preserve payload across repeats', async ({ assert, cleanup }) => {
+    const receivedPayloads: any[] = []
+
+    class RepeatJob extends Job<{ counter: number }> {
+      async execute() {
+        receivedPayloads.push(this.payload)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'repeat-job-5',
+      name: 'RepeatJob',
+      payload: { counter: 42 },
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 50,
+        remaining: 1,
+      },
+    })
+
+    // First execution
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    await setTimeout(100)
+
+    // Second execution
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.equal(receivedPayloads.length, 2)
+    assert.deepEqual(receivedPayloads[0], { counter: 42 })
+    assert.deepEqual(receivedPayloads[1], { counter: 42 })
+  })
+
+  test('should create new job ID for each repeat', async ({ assert, cleanup }) => {
+    const receivedJobIds: string[] = []
+
+    class RepeatJob extends Job {
+      async execute() {
+        receivedJobIds.push(this.context.jobId)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'original-job-id',
+      name: 'RepeatJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 50,
+        remaining: 1,
+      },
+    })
+
+    // First execution
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    await setTimeout(100)
+
+    // Second execution
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.equal(receivedJobIds.length, 2)
+    assert.equal(receivedJobIds[0], 'original-job-id')
+    assert.notEqual(receivedJobIds[1], 'original-job-id')
+  })
+
+  test('should reset attempts to 0 for repeated job', async ({ assert, cleanup }) => {
+    const receivedAttempts: number[] = []
+
+    class RepeatJob extends Job {
+      async execute() {
+        receivedAttempts.push(this.context.attempt)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'repeat-job-6',
+      name: 'RepeatJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 50,
+        remaining: 1,
+      },
+    })
+
+    // First execution
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    await setTimeout(100)
+
+    // Second execution
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    // Both executions should be attempt 1
+    assert.deepEqual(receivedAttempts, [1, 1])
+  })
+})
+
+test.group('Worker | Repeat Cancellation', () => {
+  test('should expose repeatId in JobContext for repeating jobs', async ({ assert, cleanup }) => {
+    let receivedRepeatId: string | undefined
+
+    class RepeatJob extends Job {
+      async execute() {
+        receivedRepeatId = this.context.repeatId
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'repeat-job-with-group',
+      name: 'RepeatJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 1000,
+        remaining: 5,
+        groupId: 'my-repeat-group-id',
+      },
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.equal(receivedRepeatId, 'my-repeat-group-id')
+  })
+
+  test('should not expose repeatId for non-repeating jobs', async ({ assert, cleanup }) => {
+    let receivedRepeatId: string | undefined = 'should-be-undefined'
+
+    class TestJob extends Job {
+      async execute() {
+        receivedRepeatId = this.context.repeatId
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'non-repeat-job',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.isUndefined(receivedRepeatId)
+  })
+
+  test('should not re-dispatch when repeat is cancelled', async ({ assert, cleanup }) => {
+    let executionCount = 0
+
+    class RepeatJob extends Job {
+      async execute() {
+        executionCount++
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    const groupId = 'cancel-test-group'
+
+    await sharedAdapter.push({
+      id: 'repeat-cancel-job',
+      name: 'RepeatJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 50,
+        groupId,
+      },
+    })
+
+    // Cancel the repeat before processing
+    await sharedAdapter.cancelRepeat(groupId)
+
+    // First execution
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    await setTimeout(100)
+
+    // Should be idle - repeat was cancelled
+    const cycle = await worker.processCycle(['default'])
+
+    assert.equal(executionCount, 1)
+    // @ts-ignore
+    assert.equal(cycle.type, 'idle')
+  })
+
+  test('should stop repeating mid-chain when cancelled', async ({ assert, cleanup }) => {
+    let executionCount = 0
+
+    class RepeatJob extends Job {
+      async execute() {
+        executionCount++
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    const groupId = 'mid-chain-cancel-group'
+
+    await sharedAdapter.push({
+      id: 'repeat-mid-cancel-job',
+      name: 'RepeatJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 50,
+        groupId,
+      },
+    })
+
+    // First execution (not cancelled yet)
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.equal(executionCount, 1)
+
+    await setTimeout(100)
+
+    // Second execution starts
+    await worker.processCycle(['default']) // started
+
+    // Cancel BEFORE job completes (so it won't schedule a third job)
+    await sharedAdapter.cancelRepeat(groupId)
+
+    await worker.processCycle(['default']) // completed - should NOT re-dispatch due to cancellation
+
+    assert.equal(executionCount, 2)
+
+    await setTimeout(100)
+
+    // Should be idle - repeat was cancelled before third job was scheduled
+    const cycle = await worker.processCycle(['default'])
+
+    assert.equal(executionCount, 2)
+    // @ts-ignore
+    assert.equal(cycle.type, 'idle')
+  })
+
+  test('should preserve groupId across repeat chain', async ({ assert, cleanup }) => {
+    const receivedGroupIds: (string | undefined)[] = []
+
+    class RepeatJob extends Job {
+      async execute() {
+        receivedGroupIds.push(this.context.repeatId)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('RepeatJob', RepeatJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    const groupId = 'persistent-group-id'
+
+    await sharedAdapter.push({
+      id: 'repeat-preserve-group-job',
+      name: 'RepeatJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+      repeat: {
+        interval: 50,
+        remaining: 2,
+        groupId,
+      },
+    })
+
+    // Execute all 3 runs
+    for (let i = 0; i < 3; i++) {
+      await worker.processCycle(['default']) // started
+      await worker.processCycle(['default']) // completed
+      await setTimeout(100)
+    }
+
+    assert.equal(receivedGroupIds.length, 3)
+    assert.deepEqual(receivedGroupIds, [groupId, groupId, groupId])
+  })
 })

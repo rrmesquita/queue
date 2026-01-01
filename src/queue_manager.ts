@@ -249,6 +249,35 @@ class QueueManagerSingleton {
     this.#adapterInstances.clear()
     this.#initialized = false
   }
+
+  /**
+   * Cancel a repeating job chain.
+   *
+   * After calling this, jobs with the given repeatId will no longer
+   * be re-dispatched after completion.
+   *
+   * @param repeatId - The repeat chain identifier (from DispatchResult.repeatId)
+   * @param adapter - Optional adapter name (defaults to the default adapter)
+   *
+   * @example
+   * ```typescript
+   * const { repeatId } = await SyncJob.dispatch(payload).every('5s')
+   *
+   * // Later, cancel the repeat chain
+   * await QueueManager.cancelRepeat(repeatId)
+   * ```
+   */
+  async cancelRepeat(repeatId: string, adapter?: string): Promise<void> {
+    if (!this.#initialized) {
+      throw new errors.E_QUEUE_NOT_INITIALIZED()
+    }
+
+    const adapterInstance = this.use(adapter)
+
+    debug('cancelling repeat "%s"', repeatId)
+
+    await adapterInstance.cancelRepeat(repeatId)
+  }
 }
 
 /** Global queue manager singleton */

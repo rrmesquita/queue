@@ -14,6 +14,7 @@ export class MemoryAdapter implements Adapter {
   #queues: Map<string, JobData[]> = new Map()
   #activeJobs: Map<string, ActiveJob> = new Map()
   #pendingTimeouts: Set<NodeJS.Timeout> = new Set()
+  #cancelledRepeats: Set<string> = new Set()
 
   setWorkerId(_workerId: string): void {}
 
@@ -154,5 +155,13 @@ export class MemoryAdapter implements Adapter {
     this.#pendingTimeouts.clear()
 
     return Promise.resolve()
+  }
+
+  async cancelRepeat(groupId: string): Promise<void> {
+    this.#cancelledRepeats.add(groupId)
+  }
+
+  async isRepeatCancelled(groupId: string): Promise<boolean> {
+    return this.#cancelledRepeats.has(groupId)
   }
 }

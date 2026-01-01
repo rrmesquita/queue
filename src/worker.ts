@@ -316,6 +316,9 @@ export class Worker {
       await this.#executeWithTimeout(instance, timeout)
       await this.#adapter.completeJob(job.id, queue)
 
+      // Handle repeat scheduling after successful completion
+      await this.#scheduleRepeat(job, queue, instance)
+
       const duration = (performance.now() - startTime).toFixed(2)
       debug('worker %s: successfully executed job %s in %dms', this.#id, job.id, duration)
     } catch (e) {
@@ -380,6 +383,9 @@ export class Worker {
         priority: job.priority ?? DEFAULT_PRIORITY,
         acquiredAt: new Date(job.acquiredAt),
         stalledCount: job.stalledCount ?? 0,
+        isRepeating: job.repeat !== undefined,
+        repeatRemaining: job.repeat?.remaining,
+        repeatId: job.repeat?.groupId,
       })
 
       const jobFactory = QueueManager.getJobFactory()
@@ -488,5 +494,66 @@ export class Worker {
       process.off('SIGTERM', this.#shutdownHandler)
       this.#shutdownHandler = undefined
     }
+  }
+
+  async #scheduleRepeat(job: AcquiredJob, queue: string, instance: Job): Promise<void> {
+    // Skip if no repeat config
+    if (!job.repeat) {
+      return
+    }
+
+    // Skip if job called stopRepeating()
+    if (instance.shouldStopRepeating()) {
+      debug('worker %s: job %s stopped repeating via stopRepeating()', this.#id, job.id)
+      return
+    }
+
+    // Skip if remaining is 0 (last run)
+    if (job.repeat.remaining === 0) {
+      debug('worker %s: job %s reached last repeat (remaining=0)', this.#id, job.id)
+      return
+    }
+
+    // Check if repeat chain was cancelled
+    if (job.repeat.groupId) {
+      const isCancelled = await this.#adapter.isRepeatCancelled(job.repeat.groupId)
+      if (isCancelled) {
+        debug(
+          'worker %s: job %s repeat chain was cancelled (groupId=%s)',
+          this.#id,
+          job.id,
+          job.repeat.groupId
+        )
+        return
+      }
+    }
+
+    // Calculate new remaining count
+    const newRemaining = job.repeat.remaining !== undefined ? job.repeat.remaining - 1 : undefined
+
+    // Create new job with new ID but same payload
+    const newJobData = {
+      id: randomUUID(),
+      name: job.name,
+      payload: job.payload,
+      attempts: 0,
+      priority: job.priority,
+      repeat: {
+        interval: job.repeat.interval,
+        remaining: newRemaining,
+        groupId: job.repeat.groupId, // Preserve groupId across the chain
+      },
+    }
+
+    debug(
+      'worker %s: scheduling repeat for job %s -> %s in %dms (remaining: %s)',
+      this.#id,
+      job.id,
+      newJobData.id,
+      job.repeat.interval,
+      newRemaining ?? 'infinite'
+    )
+
+    await this.#adapter.pushLaterOn(queue, newJobData, job.repeat.interval)
   }
 }

@@ -2,7 +2,7 @@ import debug from './debug.js'
 import { randomUUID } from 'node:crypto'
 import { QueueManager } from './queue_manager.js'
 import type { Adapter } from './contracts/adapter.js'
-import type { Duration } from './types/main.js'
+import type { DispatchResult, Duration, RepeatConfig } from './types/main.js'
 import { parse } from './utils.js'
 
 /**
@@ -44,6 +44,8 @@ export class JobDispatcher<T> {
   #adapter?: string | (() => Adapter)
   #delay?: Duration
   #priority?: number
+  #repeatInterval?: number
+  #repeatCount?: number
 
   /**
    * Create a new job dispatcher.
@@ -143,22 +145,78 @@ export class JobDispatcher<T> {
   }
 
   /**
-   * Dispatch the job to the queue.
+   * Make this job repeat at a fixed interval after each completion.
    *
-   * @returns The unique job ID
+   * The job will be re-dispatched after each successful execution.
+   * Use `.times()` to limit the number of repetitions.
+   *
+   * @param interval - Interval as milliseconds or duration string ('5s', '1h', '7d')
+   * @returns This dispatcher for chaining
    *
    * @example
    * ```typescript
-   * const jobId = await SendEmailJob.dispatch(payload).run()
-   * console.log(`Dispatched job: ${jobId}`)
+   * // Repeat every 5 seconds indefinitely
+   * await SyncJob.dispatch(payload).every('5s')
+   *
+   * // Repeat every hour, 10 times total
+   * await SyncJob.dispatch(payload).every('1h').times(10)
    * ```
    */
-  async run() {
+  every(interval: Duration): this {
+    this.#repeatInterval = parse(interval)
+
+    return this
+  }
+
+  /**
+   * Limit the number of times this job will repeat.
+   *
+   * Must be used with `.every()`. The total number of executions
+   * will be equal to the count specified (including the first run).
+   *
+   * @param count - Total number of times to execute the job
+   * @returns This dispatcher for chaining
+   *
+   * @example
+   * ```typescript
+   * // Run exactly 5 times, every 10 seconds
+   * await CleanupJob.dispatch(payload).every('10s').times(5)
+   * ```
+   */
+  times(count: number): this {
+    if (count < 1) {
+      throw new Error('times() must be at least 1')
+    }
+
+    this.#repeatCount = count
+
+    return this
+  }
+
+  /**
+   * Dispatch the job to the queue.
+   *
+   * @returns A DispatchResult containing the jobId and optionally a repeatId
+   *
+   * @example
+   * ```typescript
+   * const { jobId, repeatId } = await SendEmailJob.dispatch(payload).every('5s').run()
+   * console.log(`Dispatched job: ${jobId}`)
+   *
+   * // Cancel the repeat chain later
+   * if (repeatId) {
+   *   await QueueManager.cancelRepeat(repeatId)
+   * }
+   * ```
+   */
+  async run(): Promise<DispatchResult> {
     const id = randomUUID()
 
     debug('dispatching job %s with id %s using payload %s', this.#name, id, this.#payload)
 
     const adapter = this.#getAdapterInstance()
+
+    const repeat = this.#buildRepeatConfig()
 
     const payload = {
       id,
@@ -166,6 +224,7 @@ export class JobDispatcher<T> {
       payload: this.#payload,
       attempts: 0,
       priority: this.#priority,
+      repeat,
     }
 
     if (this.#delay) {
@@ -176,7 +235,25 @@ export class JobDispatcher<T> {
       await adapter.pushOn(this.#queue, payload)
     }
 
-    return id
+    return {
+      jobId: id,
+      repeatId: repeat?.groupId,
+    }
+  }
+
+  #buildRepeatConfig(): RepeatConfig | undefined {
+    if (!this.#repeatInterval) {
+      return undefined
+    }
+
+    return {
+      interval: this.#repeatInterval,
+      // If times(n) was called, remaining = n - 1 (first run counts as one)
+      // If not called, remaining is undefined (infinite)
+      remaining: this.#repeatCount !== undefined ? this.#repeatCount - 1 : undefined,
+      // Generate unique groupId for the repeat chain
+      groupId: randomUUID(),
+    }
   }
 
   /**
@@ -186,9 +263,12 @@ export class JobDispatcher<T> {
    *
    * @param onFulfilled - Success callback
    * @param onRejected - Error callback
-   * @returns Promise resolving to the job ID
+   * @returns Promise resolving to the DispatchResult
    */
-  then(onFulfilled?: (value: string) => any, onRejected?: (reason: any) => any): Promise<any> {
+  then(
+    onFulfilled?: (value: DispatchResult) => any,
+    onRejected?: (reason: any) => any
+  ): Promise<any> {
     return this.run().then(onFulfilled, onRejected)
   }
 

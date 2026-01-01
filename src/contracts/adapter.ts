@@ -149,4 +149,22 @@ export interface Adapter {
    * Called when the worker stops or the adapter is no longer needed.
    */
   destroy(): Promise<void>
+
+  /**
+   * Cancel a repeating job chain.
+   *
+   * After calling this, `isRepeatCancelled` will return true for this groupId,
+   * and the worker will not re-dispatch jobs with this groupId.
+   *
+   * @param groupId - The repeat chain identifier (from RepeatConfig.groupId)
+   */
+  cancelRepeat(groupId: string): Promise<void>
+
+  /**
+   * Check if a repeat chain has been cancelled.
+   *
+   * @param groupId - The repeat chain identifier to check
+   * @returns True if the repeat chain has been cancelled
+   */
+  isRepeatCancelled(groupId: string): Promise<boolean>
 }

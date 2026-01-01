@@ -5,6 +5,7 @@ import { DEFAULT_PRIORITY } from '../constants.js'
 import { calculateScore } from '../utils.js'
 
 const redisKey = 'jobs'
+const cancelledRepeatsKey = 'schedules::cancelled'
 type RedisConfig = Redis | RedisOptions
 
 /**
@@ -340,5 +341,14 @@ export class RedisAdapter implements Adapter {
     )
 
     return recovered as number
+  }
+
+  async cancelRepeat(groupId: string): Promise<void> {
+    await this.#connection.sadd(cancelledRepeatsKey, groupId)
+  }
+
+  async isRepeatCancelled(groupId: string): Promise<boolean> {
+    const result = await this.#connection.sismember(cancelledRepeatsKey, groupId)
+    return result === 1
   }
 }

@@ -173,3 +173,48 @@ test.group('QueueManager', () => {
     assert.include(logger.logs[0].message, 'No jobs found for locations')
   })
 })
+
+test.group('QueueManager | cancelRepeat', () => {
+  test('should cancel repeat via QueueManager.cancelRepeat()', async ({ assert }) => {
+    const { memory } = await import('./_mocks/memory_adapter.js')
+
+    const sharedAdapter = memory()()
+
+    await QueueManager.init({
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    })
+
+    const repeatId = 'test-repeat-id'
+
+    // Initially not cancelled
+    const isCancelledBefore = await sharedAdapter.isRepeatCancelled(repeatId)
+    assert.isFalse(isCancelledBefore)
+
+    // Cancel via QueueManager
+    await QueueManager.cancelRepeat(repeatId)
+
+    // Now should be cancelled
+    const isCancelledAfter = await sharedAdapter.isRepeatCancelled(repeatId)
+    assert.isTrue(isCancelledAfter)
+  })
+
+  test('should throw E_QUEUE_NOT_INITIALIZED when cancelRepeat called before init()', async ({
+    assert,
+  }) => {
+    assert.plan(2)
+
+    await QueueManager.destroy()
+
+    try {
+      await QueueManager.cancelRepeat('some-id')
+    } catch (error) {
+      assert.instanceOf(error, errors.E_QUEUE_NOT_INITIALIZED)
+      assert.equal(
+        error.message,
+        'QueueManager is not initialized. Call QueueManager.init() before using it.'
+      )
+    }
+  })
+})

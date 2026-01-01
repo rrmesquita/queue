@@ -7,6 +7,57 @@ export type { Logger }
 
 export type Duration = number | string
 
+/**
+ * Result returned when dispatching a job.
+ *
+ * @example
+ * ```typescript
+ * const { jobId, repeatId } = await SyncJob.dispatch(payload).every('5s')
+ *
+ * // Later, cancel the repeat chain
+ * if (repeatId) {
+ *   await QueueManager.cancelRepeat(repeatId)
+ * }
+ * ```
+ */
+export interface DispatchResult {
+  /** Unique identifier for this specific job instance */
+  jobId: string
+
+  /**
+   * Unique identifier for the repeat chain.
+   * Only present when the job was dispatched with `.every()`.
+   * Use this to cancel the repeat chain via `QueueManager.cancelRepeat()`.
+   */
+  repeatId?: string
+}
+
+/**
+ * Configuration for repeating jobs.
+ *
+ * When a job completes successfully and has a repeat config,
+ * it will be automatically re-dispatched after the specified interval.
+ */
+export interface RepeatConfig {
+  /** Interval in milliseconds between job executions */
+  interval: number
+
+  /**
+   * Number of repetitions remaining.
+   * - undefined = infinite repetitions
+   * - 0 = no more repetitions (last run)
+   * - n = n repetitions remaining
+   */
+  remaining?: number
+
+  /**
+   * Unique identifier for the repeat chain.
+   * All jobs in the same repeat chain share this ID.
+   * Used for cancelling the entire repeat chain.
+   */
+  groupId?: string
+}
+
 export interface JobData {
   id: string
   name: string
@@ -15,6 +66,9 @@ export interface JobData {
   priority?: number
   nextRetryAt?: Date
   stalledCount?: number
+
+  /** Configuration for repeating this job after completion */
+  repeat?: RepeatConfig
 }
 
 export interface JobOptions {
@@ -64,6 +118,27 @@ export interface JobContext {
 
   /** Number of times this job has been recovered from stalled state */
   stalledCount: number
+
+  /**
+   * Whether this job is configured to repeat.
+   * True if the job was dispatched with `.every()`.
+   */
+  isRepeating: boolean
+
+  /**
+   * Number of repetitions remaining after this execution.
+   * - undefined = infinite repetitions
+   * - 0 = this is the last execution
+   * - n = n more executions after this one
+   */
+  repeatRemaining?: number
+
+  /**
+   * Unique identifier for the repeat chain.
+   * Only present for repeating jobs (when `.every()` was used).
+   * All jobs in the same repeat chain share this ID.
+   */
+  repeatId?: string
 }
 
 export type JobClass<T extends Job = Job> = (new (payload: any, context: JobContext) => T) & {

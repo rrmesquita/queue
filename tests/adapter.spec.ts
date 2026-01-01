@@ -57,6 +57,7 @@ test.group('Adapter | Knex (SQLite)', (group) => {
   let adapter: KnexAdapter
 
   group.each.setup(async () => {
+    // Each test gets a fresh in-memory database, so no cleanup needed
     connection = Knex({
       client: 'better-sqlite3',
       connection: {
@@ -84,6 +85,7 @@ test.group('Adapter | Knex (PostgreSQL)', (group) => {
   let connection: ReturnType<typeof Knex>
   let adapter: KnexAdapter
   const tableName = 'queue_jobs_test'
+  const schedulesTableName = 'queue_schedules_test'
 
   group.each.setup(async () => {
     connection = Knex({
@@ -97,12 +99,14 @@ test.group('Adapter | Knex (PostgreSQL)', (group) => {
       },
     })
 
-    // Clean up table before each test
+    // Clean up tables before each test
     await connection.schema.dropTableIfExists(tableName)
+    await connection.schema.dropTableIfExists(schedulesTableName)
 
     return async () => {
       await adapter?.destroy()
       await connection.schema.dropTableIfExists(tableName)
+      await connection.schema.dropTableIfExists(schedulesTableName)
       await connection.destroy()
     }
   })
@@ -110,7 +114,7 @@ test.group('Adapter | Knex (PostgreSQL)', (group) => {
   registerDriverTestSuite({
     test,
     createAdapter: () => {
-      adapter = new KnexAdapter({ connection, tableName })
+      adapter = new KnexAdapter({ connection, tableName, schedulesTableName })
       return adapter
     },
   })

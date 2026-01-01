@@ -79,6 +79,16 @@ export class SyncAdapter implements Adapter {
     return Promise.resolve()
   }
 
+  cancelRepeat(_groupId: string): Promise<void> {
+    // SyncAdapter doesn't support repeating jobs
+    return Promise.resolve()
+  }
+
+  isRepeatCancelled(_groupId: string): Promise<boolean> {
+    // SyncAdapter doesn't support repeating jobs
+    return Promise.resolve(false)
+  }
+
   async #execute(jobName: string, payload: any, queue: string = 'default'): Promise<any> {
     const JobClass = Locator.get(jobName)
 
@@ -94,6 +104,8 @@ export class SyncAdapter implements Adapter {
       priority: DEFAULT_PRIORITY,
       acquiredAt: new Date(),
       stalledCount: 0,
+      isRepeating: false,
+      repeatRemaining: undefined,
     })
 
     const jobFactory = QueueManager.getJobFactory()

@@ -405,4 +405,64 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
       assert.notEqual(job1!.id, job2!.id, 'Workers should acquire different jobs')
     })
   }
+
+  // Repeat cancellation tests
+  test('cancelRepeat should mark a repeatId as cancelled', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    const repeatId = 'test-repeat-id-1'
+
+    // Initially not cancelled
+    const isCancelledBefore = await adapter.isRepeatCancelled(repeatId)
+    assert.isFalse(isCancelledBefore)
+
+    // Cancel
+    await adapter.cancelRepeat(repeatId)
+
+    // Now should be cancelled
+    const isCancelledAfter = await adapter.isRepeatCancelled(repeatId)
+    assert.isTrue(isCancelledAfter)
+  })
+
+  test('isRepeatCancelled should return false for unknown repeatId', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    const isCancelled = await adapter.isRepeatCancelled('unknown-repeat-id')
+    assert.isFalse(isCancelled)
+  })
+
+  test('cancelRepeat should be idempotent', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    const repeatId = 'test-repeat-id-2'
+
+    // Cancel multiple times
+    await adapter.cancelRepeat(repeatId)
+    await adapter.cancelRepeat(repeatId)
+    await adapter.cancelRepeat(repeatId)
+
+    // Should still be cancelled
+    const isCancelled = await adapter.isRepeatCancelled(repeatId)
+    assert.isTrue(isCancelled)
+  })
+
+  test('multiple repeatIds can be cancelled independently', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    const repeatId1 = 'repeat-id-a'
+    const repeatId2 = 'repeat-id-b'
+    const repeatId3 = 'repeat-id-c'
+
+    // Cancel only the first two
+    await adapter.cancelRepeat(repeatId1)
+    await adapter.cancelRepeat(repeatId2)
+
+    assert.isTrue(await adapter.isRepeatCancelled(repeatId1))
+    assert.isTrue(await adapter.isRepeatCancelled(repeatId2))
+    assert.isFalse(await adapter.isRepeatCancelled(repeatId3))
+  })
 }

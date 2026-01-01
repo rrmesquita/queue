@@ -44,6 +44,7 @@ import type { JobContext, JobOptions } from './types/main.js'
 export abstract class Job<Payload = any> {
   readonly #payload: Payload
   readonly #context: JobContext
+  #shouldStopRepeating = false
 
   /** Static options for this job class (queue, retries, timeout, etc.) */
   static options: JobOptions = {}
@@ -172,4 +173,34 @@ export abstract class Job<Payload = any> {
    * ```
    */
   failed?(error: Error): Promise<void>
+
+  /**
+   * Stop this job from repeating after the current execution.
+   *
+   * Only has an effect if the job was dispatched with `.every()`.
+   * Call this during `execute()` to prevent the next scheduled run.
+   *
+   * @example
+   * ```typescript
+   * async execute() {
+   *   const result = await this.doWork()
+   *
+   *   if (result.isComplete) {
+   *     this.stopRepeating()  // No more runs needed
+   *   }
+   * }
+   * ```
+   */
+  protected stopRepeating(): void {
+    this.#shouldStopRepeating = true
+  }
+
+  /**
+   * Check if this job should stop repeating.
+   * Used internally by the worker.
+   * @internal
+   */
+  shouldStopRepeating(): boolean {
+    return this.#shouldStopRepeating
+  }
 }
