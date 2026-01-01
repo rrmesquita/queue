@@ -6,7 +6,7 @@ import * as errors from './exceptions.js'
 import { QueueManager } from './queue_manager.js'
 import { JobPool } from './job_pool.js'
 import type { Adapter, AcquiredJob } from './contracts/adapter.js'
-import type { QueueManagerConfig, WorkerCycle } from './types/main.js'
+import type { JobFactory, QueueManagerConfig, WorkerCycle } from './types/main.js'
 import { Locator } from './locator.js'
 import type { JobOptions } from './types/main.js'
 import type { Job } from './job.js'
@@ -58,6 +58,7 @@ export class Worker {
   readonly #concurrency: number
   readonly #gracefulShutdown: boolean
   readonly #onShutdownSignal?: () => void | Promise<void>
+  readonly #jobFactory?: JobFactory
 
   #adapter!: Adapter
   #running = false
@@ -89,6 +90,7 @@ export class Worker {
     this.#concurrency = config.worker?.concurrency ?? 1
     this.#gracefulShutdown = config.worker?.gracefulShutdown ?? true
     this.#onShutdownSignal = config.worker?.onShutdownSignal
+    this.#jobFactory = config.worker?.jobFactory
 
     debug('created worker with id %s and config %O', this.#id, config)
   }
@@ -371,7 +373,9 @@ export class Worker {
   ): Promise<{ instance: Job; options: JobOptions; timeout: number | undefined }> {
     try {
       const JobClass = Locator.getOrThrow(job.name)
-      const instance = new JobClass(job.payload)
+      const instance = this.#jobFactory
+        ? await this.#jobFactory(JobClass, job.payload)
+        : new JobClass(job.payload)
       const options = JobClass.options || {}
       const timeout = this.#getJobTimeout(options)
 

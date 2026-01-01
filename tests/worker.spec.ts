@@ -1106,3 +1106,203 @@ test.group('Worker', () => {
     assert.isTrue(callbackInvoked, 'onShutdownSignal should be called on SIGINT')
   })
 })
+
+test.group('Worker | jobFactory', () => {
+  test('should use custom jobFactory to instantiate jobs', async ({ assert, cleanup }) => {
+    class EmailService {
+      sent = false
+      async send() {
+        this.sent = true
+      }
+    }
+
+    class SendEmailJob extends Job<{ to: string }> {
+      constructor(
+        payload: { to: string },
+        public emailService: EmailService
+      ) {
+        super(payload)
+      }
+
+      async execute() {
+        await this.emailService.send()
+      }
+    }
+
+    const emailService = new EmailService()
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      worker: {
+        jobFactory: async (JobClass: any, payload: any) => {
+          return new JobClass(payload, emailService)
+        },
+      },
+    }
+
+    // SendEmailJob has a non-standard constructor (requires injected EmailService)
+    // This is exactly the use case for jobFactory - jobs with DI dependencies
+    Locator.register('SendEmailJob', SendEmailJob as any)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'email-job-1',
+      name: 'SendEmailJob',
+      payload: { to: 'test@example.com' },
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.isTrue(emailService.sent, 'EmailService should have been used via injected dependency')
+  })
+
+  test('should pass correct JobClass and payload to jobFactory', async ({ assert, cleanup }) => {
+    let receivedJobClass: any
+    let receivedPayload: any
+
+    class TestJob extends Job {
+      async execute() {}
+    }
+
+    const sharedAdapter = memory()()
+    const expectedPayload = { foo: 'bar', count: 42 }
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      worker: {
+        jobFactory: async (JobClass: any, payload: any) => {
+          receivedJobClass = JobClass
+          receivedPayload = payload
+          return new JobClass(payload)
+        },
+      },
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'test-job-factory',
+      name: 'TestJob',
+      payload: expectedPayload,
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.equal(receivedJobClass, TestJob, 'Factory should receive the correct JobClass')
+    assert.deepEqual(receivedPayload, expectedPayload, 'Factory should receive the correct payload')
+  })
+
+  test('should support async jobFactory for IoC resolution', async ({ assert, cleanup }) => {
+    let asyncResolutionCompleted = false
+
+    class TestJob extends Job {
+      async execute() {}
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+      worker: {
+        jobFactory: async (JobClass: any, payload: any) => {
+          // Simulate async IoC container resolution
+          await setTimeout(10)
+          asyncResolutionCompleted = true
+          return new JobClass(payload)
+        },
+      },
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'async-factory-job',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.isTrue(asyncResolutionCompleted, 'Async factory should have completed resolution')
+  })
+
+  test('should fall back to default instantiation when jobFactory is not provided', async ({
+    assert,
+    cleanup,
+  }) => {
+    let executeWasCalled = false
+
+    class TestJob extends Job {
+      async execute() {
+        executeWasCalled = true
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    // No jobFactory provided
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+      locations: ['./jobs/**/*'],
+    }
+
+    Locator.register('TestJob', TestJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'default-instantiation-job',
+      name: 'TestJob',
+      payload: { test: true },
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.isTrue(executeWasCalled, 'Job should be instantiated and executed with default behavior')
+  })
+})

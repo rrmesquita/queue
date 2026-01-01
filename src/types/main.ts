@@ -29,6 +29,31 @@ export interface JobOptions {
 
 export type JobClass<T extends Job = Job> = (new (payload: any) => T) & { options?: JobOptions }
 
+/**
+ * Factory function for custom job instantiation.
+ *
+ * Use this to integrate with IoC containers for dependency injection.
+ * The factory receives the job class and payload, and must return
+ * a job instance (or a Promise that resolves to one).
+ *
+ * @param JobClass - The job class to instantiate
+ * @param payload - The payload data for the job
+ * @returns The job instance, or a Promise resolving to the instance
+ *
+ * @example
+ * ```typescript
+ * // With AdonisJS IoC container
+ * const worker = new Worker({
+ *   worker: {
+ *     jobFactory: async (JobClass, payload) => {
+ *       return app.container.make(JobClass, [payload])
+ *     }
+ *   }
+ * })
+ * ```
+ */
+export type JobFactory = (JobClass: JobClass, payload: any) => Job | Promise<Job>
+
 export interface RetryConfig {
   maxRetries?: number
   backoff?: () => BackoffStrategyClass
@@ -103,6 +128,26 @@ export interface WorkerConfig {
    * Called before the worker starts stopping.
    */
   onShutdownSignal?: () => void | Promise<void>
+
+  /**
+   * Custom factory function for job instantiation.
+   *
+   * Use this to integrate with IoC containers for dependency injection.
+   * When provided, this factory is called instead of `new JobClass(payload)`.
+   *
+   * @example
+   * ```typescript
+   * const worker = new Worker({
+   *   worker: {
+   *     jobFactory: async (JobClass, payload) => {
+   *       // Inject dependencies via IoC container
+   *       return app.container.make(JobClass, [payload])
+   *     }
+   *   }
+   * })
+   * ```
+   */
+  jobFactory?: JobFactory
 }
 
 export type WorkerCycle =

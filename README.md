@@ -72,7 +72,7 @@ const config = {
 
   worker: {
     concurrency: 5,
-    pollingInterval: '10ms',
+    idleDelay: '2s',
   },
 
   locations: ['./app/jobs/**/*.ts'],
@@ -242,7 +242,7 @@ export default class UrgentJob extends Job<Payload> {
   static readonly jobName = 'UrgentJob'
 
   static options: JobOptions = {
-    priority: 1,  // Processed before default priority (5)
+    priority: 1, // Processed before default priority (5)
   }
 
   async execute(): Promise<void> {
@@ -264,12 +264,13 @@ export default class ReliableJob extends Job<Payload> {
   static options: JobOptions = {
     maxRetries: 5,
     retry: {
-      backoff: () => exponentialBackoff({
-        baseDelay: '1s',
-        maxDelay: '1m',
-        multiplier: 2,
-        jitter: true,
-      }),
+      backoff: () =>
+        exponentialBackoff({
+          baseDelay: '1s',
+          maxDelay: '1m',
+          multiplier: 2,
+          jitter: true,
+        }),
     },
   }
 
@@ -309,10 +310,60 @@ You can also set a global timeout in the worker configuration:
 ```typescript
 const config = {
   worker: {
-    timeout: '1m',  // Default timeout for all jobs
+    timeout: '1m', // Default timeout for all jobs
   },
 }
 ```
+
+## Dependency Injection
+
+Use the `jobFactory` option to integrate with IoC containers for dependency injection. This allows your jobs to receive injected services in their constructor.
+
+```typescript
+import { Worker } from '@boringnode/queue'
+import type { JobFactory } from '@boringnode/queue'
+
+const worker = new Worker({
+  default: 'redis',
+  adapters: { redis: redis(connection) },
+  worker: {
+    jobFactory: async (JobClass, payload) => {
+      // Use your IoC container to instantiate jobs
+      return app.container.make(JobClass, [payload])
+    },
+  },
+})
+```
+
+Example with injected dependencies:
+
+```typescript
+import { Job } from '@boringnode/queue'
+
+interface SendEmailPayload {
+  to: string
+  subject: string
+}
+
+export default class SendEmailJob extends Job<SendEmailPayload> {
+  static readonly jobName = 'SendEmailJob'
+
+  constructor(
+    payload: SendEmailPayload,
+    private mailer: MailerService,  // Injected by IoC container
+    private logger: Logger          // Injected by IoC container
+  ) {
+    super(payload)
+  }
+
+  async execute(): Promise<void> {
+    this.logger.info(`Sending email to ${this.payload.to}`)
+    await this.mailer.send(this.payload)
+  }
+}
+```
+
+Without a `jobFactory`, jobs are instantiated with `new JobClass(payload)`.
 
 ## Job Discovery
 
@@ -320,14 +371,12 @@ The queue manager automatically discovers and registers jobs from the specified 
 
 ```typescript
 const config = {
-  locations: [
-    './app/jobs/**/*.ts',
-    './modules/**/jobs/**/*.ts',
-  ],
+  locations: ['./app/jobs/**/*.ts', './modules/**/jobs/**/*.ts'],
 }
 ```
 
 Jobs must:
+
 - Extend the `Job` class
 - Have a static `jobName` property
 - Implement the `execute` method
@@ -357,20 +406,20 @@ By default, a simple console logger is used that only outputs warnings and error
 
 Performance comparison with BullMQ using realistic jobs (5ms simulated work per job):
 
-| Jobs | Concurrency | @boringnode/queue | BullMQ | Diff         |
-|------|-------------|-------------------|--------|--------------|
-| 100  | 1           | 562ms             | 596ms  | 5.7% faster  |
-| 100  | 5           | 116ms             | 117ms  | ~same        |
-| 100  | 10          | 62ms              | 62ms   | ~same        |
-| 500  | 1           | 2728ms            | 2798ms | 2.5% faster  |
-| 500  | 5           | 565ms             | 565ms  | ~same        |
-| 500  | 10          | 287ms             | 288ms  | ~same        |
-| 1000 | 1           | 5450ms            | 5547ms | 1.7% faster  |
-| 1000 | 5           | 1096ms            | 1116ms | 1.8% faster  |
-| 1000 | 10          | 565ms             | 579ms  | 2.4% faster  |
-| 100K | 5           | 110.5s            | 112.3s | 1.5% faster  |
-| 100K | 10          | 56.2s             | 57.5s  | 2.1% faster  |
-| 100K | 20          | 29.1s             | 29.6s  | 1.7% faster  |
+| Jobs | Concurrency | @boringnode/queue | BullMQ | Diff        |
+|------|-------------|-------------------|--------|-------------|
+| 100  | 1           | 562ms             | 596ms  | 5.7% faster |
+| 100  | 5           | 116ms             | 117ms  | ~same       |
+| 100  | 10          | 62ms              | 62ms   | ~same       |
+| 500  | 1           | 2728ms            | 2798ms | 2.5% faster |
+| 500  | 5           | 565ms             | 565ms  | ~same       |
+| 500  | 10          | 287ms             | 288ms  | ~same       |
+| 1000 | 1           | 5450ms            | 5547ms | 1.7% faster |
+| 1000 | 5           | 1096ms            | 1116ms | 1.8% faster |
+| 1000 | 10          | 565ms             | 579ms  | 2.4% faster |
+| 100K | 5           | 110.5s            | 112.3s | 1.5% faster |
+| 100K | 10          | 56.2s             | 57.5s  | 2.1% faster |
+| 100K | 20          | 29.1s             | 29.6s  | 1.7% faster |
 
 Run benchmarks yourself:
 
