@@ -266,6 +266,9 @@ export class Worker {
         // Check for stalled jobs periodically
         await this.#checkStalledJobs(queues)
 
+        // Dispatch any due scheduled jobs
+        await this.#dispatchDueSchedules()
+
         yield* this.#fillPool(queues)
 
         if (this.#pool.isEmpty()) {
@@ -315,9 +318,6 @@ export class Worker {
     try {
       await this.#executeWithTimeout(instance, timeout)
       await this.#adapter.completeJob(job.id, queue)
-
-      // Handle repeat scheduling after successful completion
-      await this.#scheduleRepeat(job, queue, instance)
 
       const duration = (performance.now() - startTime).toFixed(2)
       debug('worker %s: successfully executed job %s in %dms', this.#id, job.id, duration)
@@ -383,9 +383,6 @@ export class Worker {
         priority: job.priority ?? DEFAULT_PRIORITY,
         acquiredAt: new Date(job.acquiredAt),
         stalledCount: job.stalledCount ?? 0,
-        isRepeating: job.repeat !== undefined,
-        repeatRemaining: job.repeat?.remaining,
-        repeatId: job.repeat?.groupId,
       })
 
       const jobFactory = QueueManager.getJobFactory()
@@ -496,64 +493,41 @@ export class Worker {
     }
   }
 
-  async #scheduleRepeat(job: AcquiredJob, queue: string, instance: Job): Promise<void> {
-    // Skip if no repeat config
-    if (!job.repeat) {
-      return
-    }
+  /**
+   * Dispatch any due scheduled jobs.
+   *
+   * Claims due schedules from the adapter and dispatches the corresponding
+   * jobs to their configured queues.
+   */
+  async #dispatchDueSchedules(): Promise<void> {
+    // Keep claiming due schedules until there are none left
+    while (true) {
+      const schedule = await this.#adapter.claimDueSchedule()
 
-    // Skip if job called stopRepeating()
-    if (instance.shouldStopRepeating()) {
-      debug('worker %s: job %s stopped repeating via stopRepeating()', this.#id, job.id)
-      return
-    }
-
-    // Skip if remaining is 0 (last run)
-    if (job.repeat.remaining === 0) {
-      debug('worker %s: job %s reached last repeat (remaining=0)', this.#id, job.id)
-      return
-    }
-
-    // Check if repeat chain was cancelled
-    if (job.repeat.groupId) {
-      const isCancelled = await this.#adapter.isRepeatCancelled(job.repeat.groupId)
-      if (isCancelled) {
-        debug(
-          'worker %s: job %s repeat chain was cancelled (groupId=%s)',
-          this.#id,
-          job.id,
-          job.repeat.groupId
-        )
-        return
+      if (!schedule) {
+        break
       }
+
+      debug(
+        'worker %s: dispatching scheduled job %s (schedule: %s, runCount: %d)',
+        this.#id,
+        schedule.jobName,
+        schedule.id,
+        schedule.runCount + 1
+      )
+
+      // Get the job class to determine the target queue
+      const JobClass = Locator.get(schedule.jobName)
+      const queue = JobClass?.options?.queue ?? 'default'
+
+      // Dispatch the job to the queue
+      await this.#adapter.pushOn(queue, {
+        id: randomUUID(),
+        name: schedule.jobName,
+        payload: schedule.payload,
+        attempts: 0,
+        priority: JobClass?.options?.priority,
+      })
     }
-
-    // Calculate new remaining count
-    const newRemaining = job.repeat.remaining !== undefined ? job.repeat.remaining - 1 : undefined
-
-    // Create new job with new ID but same payload
-    const newJobData = {
-      id: randomUUID(),
-      name: job.name,
-      payload: job.payload,
-      attempts: 0,
-      priority: job.priority,
-      repeat: {
-        interval: job.repeat.interval,
-        remaining: newRemaining,
-        groupId: job.repeat.groupId, // Preserve groupId across the chain
-      },
-    }
-
-    debug(
-      'worker %s: scheduling repeat for job %s -> %s in %dms (remaining: %s)',
-      this.#id,
-      job.id,
-      newJobData.id,
-      job.repeat.interval,
-      newRemaining ?? 'infinite'
-    )
-
-    await this.#adapter.pushLaterOn(queue, newJobData, job.repeat.interval)
   }
 }

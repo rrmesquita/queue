@@ -6,8 +6,15 @@ interface MetricsJobPayload {
 }
 
 /**
- * Example job that collects metrics at regular intervals.
- * Demonstrates repeating jobs with external cancellation.
+ * Example job that collects metrics.
+ * For scheduled/repeating execution, use the Schedule API:
+ *
+ * ```typescript
+ * await MetricsJob.schedule({ endpoint: '/api/health' })
+ *   .id('health-check')
+ *   .every('10s')
+ *   .run()
+ * ```
  */
 export default class MetricsJob extends Job<MetricsJobPayload> {
   static readonly jobName = 'MetricsJob'
@@ -17,13 +24,7 @@ export default class MetricsJob extends Job<MetricsJobPayload> {
   }
 
   async execute(): Promise<void> {
-    const repeatInfo = this.context.isRepeating
-      ? ` (repeat ${this.context.repeatRemaining ?? '∞'} remaining, repeatId: ${this.context.repeatId})`
-      : ''
-
-    console.log(
-      `[Job ${this.context.jobId}] Collecting metrics from ${this.payload.endpoint}${repeatInfo}`
-    )
+    console.log(`[Job ${this.context.jobId}] Collecting metrics from ${this.payload.endpoint}`)
 
     // Simulate metrics collection
     const metrics = {

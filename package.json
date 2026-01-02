@@ -28,7 +28,8 @@
   },
   "dependencies": {
     "@lukeed/ms": "^2.0.2",
-    "@poppinss/utils": "^6.10.1"
+    "@poppinss/utils": "^6.10.1",
+    "cron-parser": "^5.4.0"
   },
   "devDependencies": {
     "@adonisjs/eslint-config": "^2.1.2",

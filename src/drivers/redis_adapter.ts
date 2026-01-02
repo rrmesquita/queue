@@ -1,11 +1,13 @@
+import { randomUUID } from 'node:crypto'
 import { Redis, type RedisOptions } from 'ioredis'
-import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
-import type { JobData } from '../types/main.js'
 import { DEFAULT_PRIORITY } from '../constants.js'
 import { calculateScore } from '../utils.js'
+import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
+import type { JobData, ScheduleConfig, ScheduleData, ScheduleListOptions } from '../types/main.js'
 
 const redisKey = 'jobs'
-const cancelledRepeatsKey = 'schedules::cancelled'
+const schedulesKey = 'schedules'
+const schedulesIndexKey = 'schedules::index'
 type RedisConfig = Redis | RedisOptions
 
 /**
@@ -185,6 +187,83 @@ const RECOVER_STALLED_JOBS_SCRIPT = `
 `
 
 /**
+ * Lua script for atomically claiming a due schedule.
+ * Takes a schedule key as KEYS[1] and checks if it's due.
+ * Returns the schedule data if claimed, nil otherwise.
+ *
+ * This script is called per-schedule from the JS side which handles iteration.
+ */
+const CLAIM_SCHEDULE_SCRIPT = `
+  local schedule_key = KEYS[1]
+  local now = tonumber(ARGV[1])
+
+  -- Get schedule data
+  local data = redis.call('HGETALL', schedule_key)
+  if #data == 0 then
+    return nil
+  end
+
+  -- Convert HGETALL result to table
+  local schedule = {}
+  for j = 1, #data, 2 do
+    schedule[data[j]] = data[j + 1]
+  end
+
+  -- Check if schedule is due
+  if schedule.status ~= 'active' then
+    return nil
+  end
+
+  local next_run_at = tonumber(schedule.next_run_at)
+  if not next_run_at or next_run_at > now then
+    return nil
+  end
+
+  local run_count = tonumber(schedule.run_count or '0')
+  local run_limit = schedule.run_limit and tonumber(schedule.run_limit) or nil
+  local to_date = schedule.to_date and tonumber(schedule.to_date) or nil
+
+  -- Check limits
+  if run_limit and run_count >= run_limit then
+    return nil
+  end
+
+  if to_date and now > to_date then
+    return nil
+  end
+
+  -- This schedule is claimable - atomically update it
+  local new_run_count = run_count + 1
+
+  -- Calculate new next_run_at (simple interval-based for now)
+  -- Complex cron calculation happens in the caller
+  local new_next_run_at = ''
+  local every_ms = schedule.every_ms and tonumber(schedule.every_ms) or nil
+  if every_ms then
+    new_next_run_at = tostring(now + every_ms)
+  end
+
+  -- Check if we've hit the limit after this run
+  if run_limit and new_run_count >= run_limit then
+    new_next_run_at = ''
+  end
+
+  -- Check if past end date
+  if to_date and new_next_run_at ~= '' and tonumber(new_next_run_at) > to_date then
+    new_next_run_at = ''
+  end
+
+  -- Update the schedule atomically
+  redis.call('HSET', schedule_key,
+    'next_run_at', new_next_run_at,
+    'last_run_at', tostring(now),
+    'run_count', tostring(new_run_count))
+
+  -- Return the schedule data (before update) as JSON
+  return cjson.encode(schedule)
+`
+
+/**
  * Create a new Redis adapter factory.
  * Accepts either a Redis instance or Redis options.
  *
@@ -343,12 +422,163 @@ export class RedisAdapter implements Adapter {
     return recovered as number
   }
 
-  async cancelRepeat(groupId: string): Promise<void> {
-    await this.#connection.sadd(cancelledRepeatsKey, groupId)
+  async createSchedule(config: ScheduleConfig): Promise<string> {
+    const id = config.id ?? randomUUID()
+    const now = Date.now()
+
+    const scheduleData: Record<string, string> = {
+      id,
+      job_name: config.jobName,
+      payload: JSON.stringify(config.payload),
+      timezone: config.timezone,
+      status: 'active',
+      run_count: '0',
+      created_at: now.toString(),
+    }
+
+    if (config.cronExpression) scheduleData.cron_expression = config.cronExpression
+    if (config.everyMs) scheduleData.every_ms = config.everyMs.toString()
+    if (config.from) scheduleData.from_date = config.from.getTime().toString()
+    if (config.to) scheduleData.to_date = config.to.getTime().toString()
+    if (config.limit) scheduleData.run_limit = config.limit.toString()
+
+    // Store schedule as hash
+    const scheduleKey = `${schedulesKey}::${id}`
+    await this.#connection.hset(scheduleKey, scheduleData)
+
+    // Add to index set for listing
+    await this.#connection.sadd(schedulesIndexKey, id)
+
+    return id
   }
 
-  async isRepeatCancelled(groupId: string): Promise<boolean> {
-    const result = await this.#connection.sismember(cancelledRepeatsKey, groupId)
-    return result === 1
+  async getSchedule(id: string): Promise<ScheduleData | null> {
+    const scheduleKey = `${schedulesKey}::${id}`
+    const data = await this.#connection.hgetall(scheduleKey)
+
+    if (!data || Object.keys(data).length === 0) {
+      return null
+    }
+
+    return this.#hashToScheduleData(data)
+  }
+
+  async listSchedules(options?: ScheduleListOptions): Promise<ScheduleData[]> {
+    const ids = await this.#connection.smembers(schedulesIndexKey)
+    const schedules: ScheduleData[] = []
+
+    for (const id of ids) {
+      const schedule = await this.getSchedule(id)
+      if (schedule) {
+        // Filter by status if provided
+        if (options?.status && schedule.status !== options.status) {
+          continue
+        }
+        schedules.push(schedule)
+      }
+    }
+
+    return schedules
+  }
+
+  async updateSchedule(
+    id: string,
+    updates: Partial<Pick<ScheduleData, 'status' | 'nextRunAt' | 'lastRunAt' | 'runCount'>>
+  ): Promise<void> {
+    const scheduleKey = `${schedulesKey}::${id}`
+    const data: Record<string, string> = {}
+
+    if (updates.status !== undefined) data.status = updates.status
+    if (updates.nextRunAt !== undefined) {
+      data.next_run_at = updates.nextRunAt ? updates.nextRunAt.getTime().toString() : ''
+    }
+    if (updates.lastRunAt !== undefined) {
+      data.last_run_at = updates.lastRunAt ? updates.lastRunAt.getTime().toString() : ''
+    }
+    if (updates.runCount !== undefined) data.run_count = updates.runCount.toString()
+
+    if (Object.keys(data).length > 0) {
+      await this.#connection.hset(scheduleKey, data)
+    }
+  }
+
+  async deleteSchedule(id: string): Promise<void> {
+    const scheduleKey = `${schedulesKey}::${id}`
+    await this.#connection.del(scheduleKey)
+    await this.#connection.srem(schedulesIndexKey, id)
+  }
+
+  async claimDueSchedule(): Promise<ScheduleData | null> {
+    const now = Date.now()
+    const ids = await this.#connection.smembers(schedulesIndexKey)
+
+    // Try to claim each schedule atomically using Lua script
+    for (const id of ids) {
+      const scheduleKey = `${schedulesKey}::${id}`
+
+      // Use Lua script for atomic check-and-update
+      const result = await this.#connection.eval(
+        CLAIM_SCHEDULE_SCRIPT,
+        1,
+        scheduleKey,
+        now.toString()
+      )
+
+      if (!result) {
+        continue
+      }
+
+      const data = JSON.parse(result as string) as Record<string, string>
+
+      // If cron expression, we need to recalculate next_run_at properly
+      // The Lua script only handles simple interval; cron needs JS cron-parser
+      // This is safe because the schedule is already claimed (run_count incremented)
+      if (data.cron_expression) {
+        const { CronExpressionParser } = await import('cron-parser')
+        const cron = CronExpressionParser.parse(data.cron_expression, {
+          currentDate: new Date(now),
+          tz: data.timezone || 'UTC',
+        })
+        const nextRun = cron.next().toDate().getTime()
+
+        // Check limits before updating
+        const runCount = Number.parseInt(data.run_count || '0', 10) + 1
+        const runLimit = data.run_limit ? Number.parseInt(data.run_limit, 10) : null
+        const toDate = data.to_date ? Number.parseInt(data.to_date, 10) : null
+
+        let newNextRunAt: number | string = nextRun
+
+        if (runLimit !== null && runCount >= runLimit) {
+          newNextRunAt = ''
+        } else if (toDate && nextRun > toDate) {
+          newNextRunAt = ''
+        }
+
+        await this.#connection.hset(scheduleKey, 'next_run_at', newNextRunAt.toString())
+      }
+
+      return this.#hashToScheduleData(data)
+    }
+
+    return null
+  }
+
+  #hashToScheduleData(data: Record<string, string>): ScheduleData {
+    return {
+      id: data.id,
+      jobName: data.job_name,
+      payload: JSON.parse(data.payload || '{}'),
+      cronExpression: data.cron_expression || null,
+      everyMs: data.every_ms ? Number.parseInt(data.every_ms, 10) : null,
+      timezone: data.timezone || 'UTC',
+      from: data.from_date ? new Date(Number.parseInt(data.from_date, 10)) : null,
+      to: data.to_date ? new Date(Number.parseInt(data.to_date, 10)) : null,
+      limit: data.run_limit ? Number.parseInt(data.run_limit, 10) : null,
+      runCount: Number.parseInt(data.run_count || '0', 10),
+      nextRunAt: data.next_run_at ? new Date(Number.parseInt(data.next_run_at, 10)) : null,
+      lastRunAt: data.last_run_at ? new Date(Number.parseInt(data.last_run_at, 10)) : null,
+      status: (data.status as 'active' | 'paused') || 'active',
+      createdAt: data.created_at ? new Date(Number.parseInt(data.created_at, 10)) : new Date(),
+    }
   }
 }

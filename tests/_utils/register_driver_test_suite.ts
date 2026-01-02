@@ -406,63 +406,380 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     })
   }
 
-  // Repeat cancellation tests
-  test('cancelRepeat should mark a repeatId as cancelled', async ({ assert }) => {
+  test('createSchedule should create a new schedule', async ({ assert }) => {
     const adapter = await options.createAdapter()
-    adapter.setWorkerId('worker-1')
 
-    const repeatId = 'test-repeat-id-1'
+    const id = await adapter.createSchedule({
+      jobName: 'TestJob',
+      payload: { foo: 'bar' },
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
 
-    // Initially not cancelled
-    const isCancelledBefore = await adapter.isRepeatCancelled(repeatId)
-    assert.isFalse(isCancelledBefore)
+    assert.isString(id)
 
-    // Cancel
-    await adapter.cancelRepeat(repeatId)
-
-    // Now should be cancelled
-    const isCancelledAfter = await adapter.isRepeatCancelled(repeatId)
-    assert.isTrue(isCancelledAfter)
+    const schedule = await adapter.getSchedule(id)
+    assert.isNotNull(schedule)
+    assert.equal(schedule!.jobName, 'TestJob')
+    assert.deepEqual(schedule!.payload, { foo: 'bar' })
+    assert.equal(schedule!.everyMs, 5000)
+    assert.equal(schedule!.status, 'active')
   })
 
-  test('isRepeatCancelled should return false for unknown repeatId', async ({ assert }) => {
+  test('createSchedule should use provided id', async ({ assert }) => {
     const adapter = await options.createAdapter()
-    adapter.setWorkerId('worker-1')
 
-    const isCancelled = await adapter.isRepeatCancelled('unknown-repeat-id')
-    assert.isFalse(isCancelled)
+    const id = await adapter.createSchedule({
+      id: 'my-custom-id',
+      jobName: 'TestJob',
+      payload: {},
+      cronExpression: '0 0 * * *',
+      timezone: 'UTC',
+    })
+
+    assert.equal(id, 'my-custom-id')
+
+    const schedule = await adapter.getSchedule('my-custom-id')
+    assert.isNotNull(schedule)
+    assert.equal(schedule!.cronExpression, '0 0 * * *')
   })
 
-  test('cancelRepeat should be idempotent', async ({ assert }) => {
+  test('createSchedule should upsert when id exists', async ({ assert }) => {
     const adapter = await options.createAdapter()
-    adapter.setWorkerId('worker-1')
 
-    const repeatId = 'test-repeat-id-2'
+    // Create initial schedule
+    await adapter.createSchedule({
+      id: 'upsert-test',
+      jobName: 'TestJob',
+      payload: { version: 1 },
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
 
-    // Cancel multiple times
-    await adapter.cancelRepeat(repeatId)
-    await adapter.cancelRepeat(repeatId)
-    await adapter.cancelRepeat(repeatId)
+    // Upsert with new values
+    await adapter.createSchedule({
+      id: 'upsert-test',
+      jobName: 'TestJob',
+      payload: { version: 2 },
+      everyMs: 10000,
+      timezone: 'Europe/Paris',
+    })
 
-    // Should still be cancelled
-    const isCancelled = await adapter.isRepeatCancelled(repeatId)
-    assert.isTrue(isCancelled)
+    const schedule = await adapter.getSchedule('upsert-test')
+    assert.deepEqual(schedule!.payload, { version: 2 })
+    assert.equal(schedule!.everyMs, 10000)
+    assert.equal(schedule!.timezone, 'Europe/Paris')
   })
 
-  test('multiple repeatIds can be cancelled independently', async ({ assert }) => {
+  test('getSchedule should return null for non-existent schedule', async ({ assert }) => {
     const adapter = await options.createAdapter()
-    adapter.setWorkerId('worker-1')
 
-    const repeatId1 = 'repeat-id-a'
-    const repeatId2 = 'repeat-id-b'
-    const repeatId3 = 'repeat-id-c'
-
-    // Cancel only the first two
-    await adapter.cancelRepeat(repeatId1)
-    await adapter.cancelRepeat(repeatId2)
-
-    assert.isTrue(await adapter.isRepeatCancelled(repeatId1))
-    assert.isTrue(await adapter.isRepeatCancelled(repeatId2))
-    assert.isFalse(await adapter.isRepeatCancelled(repeatId3))
+    const schedule = await adapter.getSchedule('non-existent')
+    assert.isNull(schedule)
   })
+
+  test('listSchedules should return all schedules', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.createSchedule({
+      id: 'list-test-1',
+      jobName: 'Job1',
+      payload: {},
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
+    await adapter.createSchedule({
+      id: 'list-test-2',
+      jobName: 'Job2',
+      payload: {},
+      everyMs: 10000,
+      timezone: 'UTC',
+    })
+
+    const schedules = await adapter.listSchedules()
+    const ids = schedules.map((s) => s.id)
+
+    assert.include(ids, 'list-test-1')
+    assert.include(ids, 'list-test-2')
+  })
+
+  test('listSchedules should filter by status', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.createSchedule({
+      id: 'filter-active',
+      jobName: 'Job1',
+      payload: {},
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
+    await adapter.createSchedule({
+      id: 'filter-paused',
+      jobName: 'Job2',
+      payload: {},
+      everyMs: 10000,
+      timezone: 'UTC',
+    })
+
+    await adapter.updateSchedule('filter-paused', { status: 'paused' })
+
+    const activeSchedules = await adapter.listSchedules({ status: 'active' })
+    const pausedSchedules = await adapter.listSchedules({ status: 'paused' })
+
+    assert.isTrue(activeSchedules.some((s) => s.id === 'filter-active'))
+    assert.isFalse(activeSchedules.some((s) => s.id === 'filter-paused'))
+    assert.isTrue(pausedSchedules.some((s) => s.id === 'filter-paused'))
+    assert.isFalse(pausedSchedules.some((s) => s.id === 'filter-active'))
+  })
+
+  test('updateSchedule should update status', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.createSchedule({
+      id: 'update-status-test',
+      jobName: 'TestJob',
+      payload: {},
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
+
+    await adapter.updateSchedule('update-status-test', { status: 'paused' })
+
+    const schedule = await adapter.getSchedule('update-status-test')
+    assert.equal(schedule!.status, 'paused')
+  })
+
+  test('updateSchedule should update run metadata', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.createSchedule({
+      id: 'update-meta-test',
+      jobName: 'TestJob',
+      payload: {},
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
+
+    const now = new Date()
+    const nextRun = new Date(now.getTime() + 5000)
+
+    await adapter.updateSchedule('update-meta-test', {
+      runCount: 5,
+      lastRunAt: now,
+      nextRunAt: nextRun,
+    })
+
+    const schedule = await adapter.getSchedule('update-meta-test')
+    assert.equal(schedule!.runCount, 5)
+    assert.approximately(schedule!.lastRunAt!.getTime(), now.getTime(), 1000)
+    assert.approximately(schedule!.nextRunAt!.getTime(), nextRun.getTime(), 1000)
+  })
+
+  test('deleteSchedule should remove schedule', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.createSchedule({
+      id: 'delete-test',
+      jobName: 'TestJob',
+      payload: {},
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
+
+    await adapter.deleteSchedule('delete-test')
+
+    const schedule = await adapter.getSchedule('delete-test')
+    assert.isNull(schedule)
+  })
+
+  test('claimDueSchedule should return null when no schedules are due', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    // Create schedule with nextRunAt in the future
+    await adapter.createSchedule({
+      id: 'future-schedule',
+      jobName: 'TestJob',
+      payload: {},
+      everyMs: 60000,
+      timezone: 'UTC',
+    })
+
+    await adapter.updateSchedule('future-schedule', {
+      nextRunAt: new Date(Date.now() + 60000),
+    })
+
+    const claimed = await adapter.claimDueSchedule()
+    assert.isNull(claimed)
+  })
+
+  test('claimDueSchedule should claim a due schedule', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.createSchedule({
+      id: 'due-schedule',
+      jobName: 'DueJob',
+      payload: { key: 'value' },
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
+
+    // Make it due
+    await adapter.updateSchedule('due-schedule', {
+      nextRunAt: new Date(Date.now() - 1000),
+    })
+
+    const claimed = await adapter.claimDueSchedule()
+
+    assert.isNotNull(claimed)
+    assert.equal(claimed!.id, 'due-schedule')
+    assert.equal(claimed!.jobName, 'DueJob')
+    assert.deepEqual(claimed!.payload, { key: 'value' })
+  })
+
+  test('claimDueSchedule should update nextRunAt after claiming', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.createSchedule({
+      id: 'claim-update-test',
+      jobName: 'TestJob',
+      payload: {},
+      everyMs: 10000,
+      timezone: 'UTC',
+    })
+
+    const pastDate = new Date(Date.now() - 1000)
+    await adapter.updateSchedule('claim-update-test', { nextRunAt: pastDate })
+
+    await adapter.claimDueSchedule()
+
+    const after = await adapter.getSchedule('claim-update-test')
+    assert.isNotNull(after!.nextRunAt)
+    assert.isTrue(after!.nextRunAt!.getTime() > Date.now())
+  })
+
+  test('claimDueSchedule should increment runCount', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.createSchedule({
+      id: 'runcount-test',
+      jobName: 'TestJob',
+      payload: {},
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
+
+    await adapter.updateSchedule('runcount-test', {
+      nextRunAt: new Date(Date.now() - 1000),
+    })
+
+    const before = await adapter.getSchedule('runcount-test')
+    assert.equal(before!.runCount, 0)
+
+    await adapter.claimDueSchedule()
+
+    const after = await adapter.getSchedule('runcount-test')
+    assert.equal(after!.runCount, 1)
+  })
+
+  test('claimDueSchedule should not claim paused schedules', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.createSchedule({
+      id: 'paused-claim-test',
+      jobName: 'TestJob',
+      payload: {},
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
+
+    await adapter.updateSchedule('paused-claim-test', {
+      nextRunAt: new Date(Date.now() - 1000),
+      status: 'paused',
+    })
+
+    const claimed = await adapter.claimDueSchedule()
+    assert.isNull(claimed)
+  })
+
+  test('claimDueSchedule should not claim when limit reached', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.createSchedule({
+      id: 'limit-claim-test',
+      jobName: 'TestJob',
+      payload: {},
+      everyMs: 5000,
+      timezone: 'UTC',
+      limit: 5,
+    })
+
+    await adapter.updateSchedule('limit-claim-test', {
+      nextRunAt: new Date(Date.now() - 1000),
+      runCount: 5,
+    })
+
+    const claimed = await adapter.claimDueSchedule()
+    assert.isNull(claimed)
+  })
+
+  // Concurrent schedule tests
+  if (options.supportsConcurrency !== false) {
+    test('concurrent claimDueSchedule should not claim same schedule twice', async ({ assert }) => {
+      const adapter1 = await options.createAdapter()
+      const adapter2 = await options.createAdapter()
+
+      // Create a single due schedule
+      await adapter1.createSchedule({
+        id: 'concurrent-claim-test',
+        jobName: 'TestJob',
+        payload: {},
+        everyMs: 60000,
+        timezone: 'UTC',
+      })
+
+      await adapter1.updateSchedule('concurrent-claim-test', {
+        nextRunAt: new Date(Date.now() - 1000),
+      })
+
+      // Both adapters try to claim simultaneously
+      const [claimed1, claimed2] = await Promise.all([
+        adapter1.claimDueSchedule(),
+        adapter2.claimDueSchedule(),
+      ])
+
+      // Only one should succeed
+      const claimedSchedules = [claimed1, claimed2].filter((s) => s !== null)
+      assert.equal(claimedSchedules.length, 1, 'Only one adapter should claim the schedule')
+    })
+
+    test('high-concurrency claimDueSchedule stress test', async ({ assert }) => {
+      const adapters = await Promise.all(Array.from({ length: 10 }, () => options.createAdapter()))
+
+      // Create a single due schedule
+      await adapters[0].createSchedule({
+        id: 'stress-test-schedule',
+        jobName: 'StressJob',
+        payload: { test: true },
+        everyMs: 60000,
+        timezone: 'UTC',
+      })
+
+      await adapters[0].updateSchedule('stress-test-schedule', {
+        nextRunAt: new Date(Date.now() - 1000),
+      })
+
+      // All 10 adapters try to claim simultaneously
+      const results = await Promise.all(adapters.map((adapter) => adapter.claimDueSchedule()))
+
+      // Exactly one should succeed
+      const claimedSchedules = results.filter((s) => s !== null)
+      assert.equal(claimedSchedules.length, 1, 'Exactly one adapter should claim the schedule')
+
+      // The claimed schedule should have the correct data
+      const claimed = claimedSchedules[0]!
+      assert.equal(claimed.id, 'stress-test-schedule')
+      assert.equal(claimed.jobName, 'StressJob')
+      assert.deepEqual(claimed.payload, { test: true })
+    })
+  }
 }

@@ -1,7 +1,13 @@
 import { Locator } from '../locator.js'
 import { QueueManager } from '../queue_manager.js'
 import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
-import type { JobContext, JobData } from '../types/main.js'
+import type {
+  JobContext,
+  JobData,
+  ScheduleConfig,
+  ScheduleData,
+  ScheduleListOptions,
+} from '../types/main.js'
 import { DEFAULT_PRIORITY } from '../constants.js'
 
 /**
@@ -79,14 +85,34 @@ export class SyncAdapter implements Adapter {
     return Promise.resolve()
   }
 
-  cancelRepeat(_groupId: string): Promise<void> {
-    // SyncAdapter doesn't support repeating jobs
+  createSchedule(_config: ScheduleConfig): Promise<string> {
+    // No-op: schedules don't make sense for sync adapter
+    // Return a fake ID so code doesn't break in dev
+    return Promise.resolve(`sync-schedule-${Date.now()}`)
+  }
+
+  getSchedule(_id: string): Promise<ScheduleData | null> {
+    return Promise.resolve(null)
+  }
+
+  listSchedules(_options?: ScheduleListOptions): Promise<ScheduleData[]> {
+    return Promise.resolve([])
+  }
+
+  updateSchedule(
+    _id: string,
+    _updates: Partial<Pick<ScheduleData, 'status' | 'nextRunAt' | 'lastRunAt' | 'runCount'>>
+  ): Promise<void> {
     return Promise.resolve()
   }
 
-  isRepeatCancelled(_groupId: string): Promise<boolean> {
-    // SyncAdapter doesn't support repeating jobs
-    return Promise.resolve(false)
+  deleteSchedule(_id: string): Promise<void> {
+    return Promise.resolve()
+  }
+
+  claimDueSchedule(): Promise<ScheduleData | null> {
+    // SyncAdapter doesn't support scheduling
+    return Promise.resolve(null)
   }
 
   async #execute(jobName: string, payload: any, queue: string = 'default'): Promise<any> {
@@ -104,8 +130,6 @@ export class SyncAdapter implements Adapter {
       priority: DEFAULT_PRIORITY,
       acquiredAt: new Date(),
       stalledCount: 0,
-      isRepeating: false,
-      repeatRemaining: undefined,
     })
 
     const jobFactory = QueueManager.getJobFactory()

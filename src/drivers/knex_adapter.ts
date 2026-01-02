@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import KnexPkg from 'knex'
 import type { Knex } from 'knex'
 import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
-import type { JobData } from '../types/main.js'
+import type { JobData, ScheduleConfig, ScheduleData, ScheduleListOptions } from '../types/main.js'
 import { DEFAULT_PRIORITY } from '../constants.js'
 import { calculateScore } from '../utils.js'
 
@@ -99,8 +100,21 @@ export class KnexAdapter implements Adapter {
     try {
       await this.#connection.schema.createTable(this.#schedulesTable, (table) => {
         table.string('id', 255).primary()
-        table.string('status', 50).notNullable().defaultTo('cancelled')
-        table.timestamp('cancelled_at').nullable()
+        table.string('status', 50).notNullable().defaultTo('active')
+        table.string('job_name', 255).notNullable()
+        table.text('payload').notNullable()
+        table.string('cron_expression', 255).nullable()
+        table.bigint('every_ms').unsigned().nullable()
+        table.string('timezone', 100).notNullable().defaultTo('UTC')
+        table.timestamp('from_date').nullable()
+        table.timestamp('to_date').nullable()
+        table.integer('run_limit').unsigned().nullable()
+        table.integer('run_count').unsigned().notNullable().defaultTo(0)
+        table.timestamp('next_run_at').nullable()
+        table.timestamp('last_run_at').nullable()
+        table.timestamp('created_at').notNullable().defaultTo(this.#connection.fn.now())
+        // Indexes
+        table.index(['status', 'next_run_at'])
       })
     } catch {
       /**
@@ -378,29 +392,174 @@ export class KnexAdapter implements Adapter {
     })
   }
 
-  async cancelRepeat(groupId: string): Promise<void> {
+  async createSchedule(config: ScheduleConfig): Promise<string> {
     await this.#ensureTables()
 
-    // Use upsert-like behavior: insert or ignore if exists
-    try {
-      await this.#connection(this.#schedulesTable).insert({
-        id: groupId,
-        status: 'cancelled',
-        cancelled_at: this.#connection.fn.now(),
+    const id = config.id ?? randomUUID()
+
+    const data = {
+      id,
+      job_name: config.jobName,
+      payload: JSON.stringify(config.payload),
+      cron_expression: config.cronExpression ?? null,
+      every_ms: config.everyMs ?? null,
+      timezone: config.timezone,
+      from_date: config.from ?? null,
+      to_date: config.to ?? null,
+      run_limit: config.limit ?? null,
+      status: 'active',
+    }
+
+    // Atomic upsert
+    await this.#connection(this.#schedulesTable)
+      .insert({
+        ...data,
+        run_count: 0,
+        created_at: this.#connection.fn.now(),
       })
-    } catch {
-      // Ignore duplicate key error (already cancelled)
+      .onConflict('id')
+      .merge({
+        job_name: data.job_name,
+        payload: data.payload,
+        cron_expression: data.cron_expression,
+        every_ms: data.every_ms,
+        timezone: data.timezone,
+        from_date: data.from_date,
+        to_date: data.to_date,
+        run_limit: data.run_limit,
+        status: 'active',
+      })
+
+    return id
+  }
+
+  async getSchedule(id: string): Promise<ScheduleData | null> {
+    await this.#ensureTables()
+
+    const row = await this.#connection(this.#schedulesTable).where('id', id).first()
+    if (!row) return null
+
+    return this.#rowToScheduleData(row)
+  }
+
+  async listSchedules(options?: ScheduleListOptions): Promise<ScheduleData[]> {
+    await this.#ensureTables()
+
+    let query = this.#connection(this.#schedulesTable).whereNot('status', 'cancelled')
+
+    if (options?.status) {
+      query = query.where('status', options.status)
+    }
+
+    const rows = await query
+    return rows.map((row: any) => this.#rowToScheduleData(row))
+  }
+
+  async updateSchedule(
+    id: string,
+    updates: Partial<Pick<ScheduleData, 'status' | 'nextRunAt' | 'lastRunAt' | 'runCount'>>
+  ): Promise<void> {
+    await this.#ensureTables()
+
+    const data: Record<string, any> = {}
+
+    if (updates.status !== undefined) data.status = updates.status
+    if (updates.nextRunAt !== undefined) data.next_run_at = updates.nextRunAt
+    if (updates.lastRunAt !== undefined) data.last_run_at = updates.lastRunAt
+    if (updates.runCount !== undefined) data.run_count = updates.runCount
+
+    if (Object.keys(data).length > 0) {
+      await this.#connection(this.#schedulesTable).where('id', id).update(data)
     }
   }
 
-  async isRepeatCancelled(groupId: string): Promise<boolean> {
+  async deleteSchedule(id: string): Promise<void> {
     await this.#ensureTables()
 
-    const result = await this.#connection(this.#schedulesTable)
-      .where('id', groupId)
-      .where('status', 'cancelled')
-      .first()
+    await this.#connection(this.#schedulesTable).where('id', id).delete()
+  }
 
-    return result !== undefined
+  async claimDueSchedule(): Promise<ScheduleData | null> {
+    await this.#ensureTables()
+
+    const now = new Date()
+
+    return this.#connection.transaction(async (trx) => {
+      // Find one due schedule with row locking
+      let query = trx(this.#schedulesTable)
+        .where('status', 'active')
+        .whereNotNull('next_run_at')
+        .where('next_run_at', '<=', now)
+        .where((builder) => {
+          builder.whereNull('run_limit').orWhereRaw('run_count < run_limit')
+        })
+        .where((builder) => {
+          builder.whereNull('to_date').orWhere('to_date', '>=', now)
+        })
+        .orderBy('next_run_at', 'asc')
+        .limit(1)
+
+      if (this.#supportsSkipLocked()) {
+        query = query.forUpdate().skipLocked()
+      }
+
+      const row = await query.first()
+      if (!row) return null
+
+      // Calculate next run time
+      let nextRunAt: Date | null = null
+      const newRunCount = (row.run_count ?? 0) + 1
+
+      if (row.every_ms) {
+        nextRunAt = new Date(now.getTime() + Number(row.every_ms))
+      } else if (row.cron_expression) {
+        // Import cron-parser dynamically to calculate next run
+        const { CronExpressionParser } = await import('cron-parser')
+        const cron = CronExpressionParser.parse(row.cron_expression, {
+          currentDate: now,
+          tz: row.timezone || 'UTC',
+        })
+        nextRunAt = cron.next().toDate()
+      }
+
+      // Check if limit will be reached
+      if (row.run_limit !== null && newRunCount >= row.run_limit) {
+        nextRunAt = null
+      }
+
+      // Check if past end date
+      if (nextRunAt && row.to_date && nextRunAt > new Date(row.to_date)) {
+        nextRunAt = null
+      }
+
+      // Update atomically
+      await trx(this.#schedulesTable).where('id', row.id).update({
+        next_run_at: nextRunAt,
+        last_run_at: now,
+        run_count: newRunCount,
+      })
+
+      // Return schedule data (before update state for payload)
+      return this.#rowToScheduleData(row)
+    })
+  }
+
+  #rowToScheduleData(row: any): ScheduleData {
+    return {
+      id: row.id,
+      jobName: row.job_name,
+      payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
+      cronExpression: row.cron_expression ?? null,
+      everyMs: row.every_ms ? Number(row.every_ms) : null,
+      timezone: row.timezone ?? 'UTC',
+      from: row.from_date ? new Date(row.from_date) : null,
+      to: row.to_date ? new Date(row.to_date) : null,
+      limit: row.run_limit ? Number(row.run_limit) : null,
+      runCount: Number(row.run_count ?? 0),
+      nextRunAt: row.next_run_at ? new Date(row.next_run_at) : null,
+      lastRunAt: row.last_run_at ? new Date(row.last_run_at) : null,
+      status: row.status === 'cancelled' ? 'paused' : row.status,
+      createdAt: row.created_at ? new Date(row.created_at) : new Date(),
+    }
   }
 }

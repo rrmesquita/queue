@@ -62,3 +62,15 @@ export const E_NO_JOBS_FOUND = createError<[patterns: string]>(
   'E_NO_JOBS_FOUND',
   500
 )
+
+export const E_INVALID_CRON_EXPRESSION = createError<[expression: string, reason: string]>(
+  'Invalid cron expression "%s": %s',
+  'E_INVALID_CRON_EXPRESSION',
+  500
+)
+
+export const E_INVALID_SCHEDULE_CONFIG = createError<[reason: string]>(
+  'Invalid schedule configuration: %s',
+  'E_INVALID_SCHEDULE_CONFIG',
+  500
+)

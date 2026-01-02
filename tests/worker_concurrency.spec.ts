@@ -38,6 +38,7 @@ test.group('Worker Concurrency | Knex (PostgreSQL)', (group) => {
   let connection: ReturnType<typeof Knex>
   let adapter: KnexAdapter
   const tableName = 'queue_jobs_concurrency_test'
+  const schedulesTableName = 'queue_schedules'
 
   group.each.setup(async () => {
     connection = Knex({
@@ -51,11 +52,14 @@ test.group('Worker Concurrency | Knex (PostgreSQL)', (group) => {
       },
     })
 
+    // Drop both tables to ensure clean state
     await connection.schema.dropTableIfExists(tableName)
+    await connection.schema.dropTableIfExists(schedulesTableName)
 
     return async () => {
       await adapter?.destroy()
       await connection.schema.dropTableIfExists(tableName)
+      await connection.schema.dropTableIfExists(schedulesTableName)
       await connection.destroy()
     }
   })

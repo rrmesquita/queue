@@ -1,4 +1,5 @@
 import { JobDispatcher } from './job_dispatcher.js'
+import { ScheduleBuilder } from './schedule_builder.js'
 import type { JobContext, JobOptions } from './types/main.js'
 
 /**
@@ -44,7 +45,6 @@ import type { JobContext, JobOptions } from './types/main.js'
 export abstract class Job<Payload = any> {
   readonly #payload: Payload
   readonly #context: JobContext
-  #shouldStopRepeating = false
 
   /** Static options for this job class (queue, retries, timeout, etc.) */
   static options: JobOptions = {}
@@ -133,6 +133,38 @@ export abstract class Job<Payload = any> {
   }
 
   /**
+   * Create a schedule for this job.
+   *
+   * Returns a ScheduleBuilder for fluent configuration before creating the schedule.
+   * The schedule is not actually created until `.run()` is called or the
+   * builder is awaited.
+   *
+   * @param payload - The data to pass to the job on each run
+   * @returns A ScheduleBuilder for fluent configuration
+   *
+   * @example
+   * ```typescript
+   * // Cron schedule
+   * await CleanupJob.schedule({ days: 30 })
+   *   .id('cleanup-daily')
+   *   .cron('0 0 * * *')
+   *   .timezone('Europe/Paris')
+   *   .run()
+   *
+   * // Interval schedule
+   * await SyncJob.schedule({ source: 'api' })
+   *   .every('5m')
+   *   .run()
+   * ```
+   */
+  static schedule<T extends Job>(
+    this: new (payload: any, context: JobContext) => T,
+    payload: T extends Job<infer P> ? P : never
+  ): ScheduleBuilder {
+    return new ScheduleBuilder((this as any).jobName, payload)
+  }
+
+  /**
    * Execute the job's business logic.
    *
    * This method is called by the worker when processing the job.
@@ -173,34 +205,4 @@ export abstract class Job<Payload = any> {
    * ```
    */
   failed?(error: Error): Promise<void>
-
-  /**
-   * Stop this job from repeating after the current execution.
-   *
-   * Only has an effect if the job was dispatched with `.every()`.
-   * Call this during `execute()` to prevent the next scheduled run.
-   *
-   * @example
-   * ```typescript
-   * async execute() {
-   *   const result = await this.doWork()
-   *
-   *   if (result.isComplete) {
-   *     this.stopRepeating()  // No more runs needed
-   *   }
-   * }
-   * ```
-   */
-  protected stopRepeating(): void {
-    this.#shouldStopRepeating = true
-  }
-
-  /**
-   * Check if this job should stop repeating.
-   * Used internally by the worker.
-   * @internal
-   */
-  shouldStopRepeating(): boolean {
-    return this.#shouldStopRepeating
-  }
 }

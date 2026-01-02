@@ -2,6 +2,8 @@ export { Job } from './src/job.js'
 export { Worker } from './src/worker.js'
 export { QueueManager } from './src/queue_manager.js'
 export { Locator } from './src/locator.js'
+export { Schedule } from './src/schedule.js'
+export { ScheduleBuilder } from './src/schedule_builder.js'
 export {
   customBackoff,
   linearBackoff,

@@ -29,7 +29,7 @@ npm install @boringnode/queue
 - **Priority Queues**: Process high-priority jobs first
 - **Retry with Backoff**: Automatic retries with exponential, linear, or fixed backoff strategies
 - **Job Timeout**: Automatically fail or retry jobs that exceed a time limit
-- **Repeating Jobs**: Schedule jobs to repeat at fixed intervals
+- **Scheduled Jobs**: Cron-based or interval-based job scheduling with pause/resume support
 
 ## Quick Start
 
@@ -355,18 +355,15 @@ export default class MyJob extends Job<Payload> {
 
 ### Context Properties
 
-| Property          | Type                | Description                                       |
-|-------------------|---------------------|---------------------------------------------------|
-| `jobId`           | string              | Unique identifier for this job                    |
-| `name`            | string              | Job class name                                    |
-| `attempt`         | number              | Current attempt number (1-based)                  |
-| `queue`           | string              | Queue name this job is being processed from       |
-| `priority`        | number              | Job priority (lower = higher priority)            |
-| `acquiredAt`      | Date                | When this job was acquired by the worker          |
-| `stalledCount`    | number              | Times this job was recovered from stalled state   |
-| `isRepeating`     | boolean             | Whether this job is configured to repeat          |
-| `repeatRemaining` | number \| undefined | Remaining repetitions (undefined = infinite)      |
-| `repeatId`        | string \| undefined | Unique ID for the repeat chain (for cancellation) |
+| Property       | Type   | Description                                     |
+|----------------|--------|-------------------------------------------------|
+| `jobId`        | string | Unique identifier for this job                  |
+| `name`         | string | Job class name                                  |
+| `attempt`      | number | Current attempt number (1-based)                |
+| `queue`        | string | Queue name this job is being processed from     |
+| `priority`     | number | Job priority (lower = higher priority)          |
+| `acquiredAt`   | Date   | When this job was acquired by the worker        |
+| `stalledCount` | number | Times this job was recovered from stalled state |
 
 ## Dependency Injection
 
@@ -417,87 +414,96 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
 
 Without a `jobFactory`, jobs are instantiated with `new JobClass(payload, context)`.
 
-## Repeating Jobs
+## Scheduled Jobs
 
-Schedule jobs to repeat automatically at fixed intervals:
+Schedule jobs to run on a recurring basis using cron expressions or fixed intervals. Schedules are persisted and survive worker restarts.
+
+### Creating a Schedule
 
 ```typescript
-// Repeat every 5 seconds indefinitely
-await SyncJob.dispatch({ source: 'api' }).every('5s')
+import { Schedule } from '@boringnode/queue'
 
-// Repeat every hour, 10 times total
-await CleanupJob.dispatch({ days: 30 }).every('1h').times(10)
+// Run every 10 seconds (uses job name as schedule ID by default)
+const { scheduleId } = await MetricsJob.schedule({ endpoint: '/api/health' }).every('10s').run()
 
-// Combine with delay (start after 30 seconds, then repeat every minute)
-await ReportJob.dispatch({ type: 'daily' }).in('30s').every('1m')
+// Run on a cron schedule with custom ID
+await CleanupJob.schedule({ days: 30 })
+  .id('daily-cleanup') // Custom ID (optional, defaults to job name)
+  .cron('0 * * * *') // Every hour at minute 0
+  .timezone('Europe/Paris') // Optional timezone (default: UTC)
+  .run()
+
+// Schedule with constraints
+await ReportJob.schedule({ type: 'weekly' })
+  .id('weekly-report')
+  .cron('0 9 * * MON') // Every Monday at 9am
+  .from(new Date('2024-01-01')) // Start date
+  .to(new Date('2024-12-31')) // End date
+  .limit(52) // Maximum 52 runs
+  .run()
 ```
 
-### Cancelling a Repeating Job
-
-When dispatching a repeating job, you receive a `repeatId` that can be used to cancel the entire repeat chain from anywhere:
+### Managing Schedules
 
 ```typescript
-import { QueueManager } from '@boringnode/queue'
+import { Schedule } from '@boringnode/queue'
 
-// Dispatch returns jobId and repeatId
-const { jobId, repeatId } = await SyncJob.dispatch({ source: 'api' }).every('5s')
+// Find a schedule by ID
+const schedule = await Schedule.find('health-check')
 
-console.log(`Started repeating job ${jobId} with repeat chain ${repeatId}`)
+if (schedule) {
+  console.log(`Status: ${schedule.status}`) // 'active' or 'paused'
+  console.log(`Run count: ${schedule.runCount}`)
+  console.log(`Next run: ${schedule.nextRunAt}`)
+  console.log(`Last run: ${schedule.lastRunAt}`)
 
-// Later, cancel the repeat chain from anywhere
-if (repeatId) {
-  await QueueManager.cancelRepeat(repeatId)
+  // Pause the schedule
+  await schedule.pause()
+
+  // Resume the schedule
+  await schedule.resume()
+
+  // Trigger an immediate run (outside of the normal schedule)
+  await schedule.trigger()
+
+  // Delete the schedule
+  await schedule.delete()
 }
 ```
 
-The `repeatId` is also available inside the job via `this.context.repeatId`.
-
-### Stopping from Within the Job
-
-A job can stop its own repetition by calling `this.stopRepeating()`:
+### Listing Schedules
 
 ```typescript
-import { Job } from '@boringnode/queue'
-import type { JobContext } from '@boringnode/queue/types'
+import { Schedule } from '@boringnode/queue'
 
-export default class SyncJob extends Job<SyncPayload> {
-  static readonly jobName = 'SyncJob'
+// List all schedules
+const all = await Schedule.list()
 
-  async execute(): Promise<void> {
-    const result = await this.syncData()
-
-    // Stop repeating when sync is complete
-    if (result.isComplete) {
-      this.stopRepeating()
-    }
-  }
-}
+// Filter by status
+const active = await Schedule.list({ status: 'active' })
+const paused = await Schedule.list({ status: 'paused' })
 ```
 
-### Repeat Context
+### Schedule Options
 
-Jobs have access to repeat information via `this.context`:
+| Method               | Description                                     |
+|----------------------|-------------------------------------------------|
+| `.id(string)`        | Unique identifier (defaults to job name)        |
+| `.every(duration)`   | Run at fixed intervals ('5s', '1m', '1h', '1d') |
+| `.cron(expression)`  | Run on a cron schedule                          |
+| `.timezone(tz)`      | Timezone for cron expressions (default: 'UTC')  |
+| `.from(date)`        | Don't run before this date                      |
+| `.to(date)`          | Don't run after this date                       |
+| `.between(from, to)` | Shorthand for `.from().to()`                    |
+| `.limit(n)`          | Maximum number of runs                          |
 
-```typescript
-async execute(): Promise<void> {
-  if (this.context.isRepeating) {
-    console.log(`Repeating job, ${this.context.repeatRemaining ?? 'infinite'} runs remaining`)
-  }
-}
-```
+### How Scheduling Works
 
-| Property          | Type                | Description                                       |
-|-------------------|---------------------|---------------------------------------------------|
-| `isRepeating`     | boolean             | Whether this job is configured to repeat          |
-| `repeatRemaining` | number \| undefined | Remaining repetitions (undefined = infinite)      |
-| `repeatId`        | string \| undefined | Unique ID for the repeat chain (for cancellation) |
-
-### How Repeating Works
-
-- Each repeat creates a **new job** with a new ID
-- The payload is **preserved** across repeats
-- Failed jobs do **not** repeat (only successful completions trigger the next run)
-- The repeat interval is the delay **between** job completions
+- Schedules are **persisted** in the database (via the adapter)
+- The **Worker** polls for due schedules and dispatches jobs automatically
+- Each schedule run creates a **new job** with a unique ID
+- Multiple workers can run concurrently - only one will claim each due schedule
+- Failed jobs do **not** affect the schedule (the next run will still occur)
 
 ## Job Discovery
 

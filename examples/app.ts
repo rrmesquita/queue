@@ -1,5 +1,6 @@
 import { config } from './config.js'
 import { QueueManager } from '../src/queue_manager.js'
+import { Schedule } from '../src/schedule.js'
 import SendEmailJob from './jobs/send_email_job.js'
 import SyncJob from './jobs/sync_job.js'
 import MetricsJob from './jobs/metrics_job.js'
@@ -14,13 +15,25 @@ for (let i = 0; i < 10; i++) {
   await SendEmailJob.dispatch({ to: 'romain.lanz@pm.me' + i })
 }
 
-// Example: Dispatch a repeating job and get the repeatId for later cancellation
-const { jobId, repeatId } = await MetricsJob.dispatch({ endpoint: '/api/health' }).every('10s')
+// Example: Schedule a recurring metrics job every 10 seconds
+// By default, the schedule ID is the job name ('MetricsJob')
+const { scheduleId } = await MetricsJob.schedule({ endpoint: '/api/health' }).every('10s').run()
 
-console.log(`Started metrics collection job ${jobId}`)
-console.log(`To cancel this repeating job, use: await QueueManager.cancelRepeat('${repeatId}')`)
+console.log(`Created schedule: ${scheduleId}`) // 'MetricsJob'
 
-// Example: Cancel a repeating job after some condition
-// await QueueManager.cancelRepeat(repeatId)
+// Manage the schedule using its ID
+const schedule = await Schedule.find('MetricsJob')
+if (schedule) {
+  console.log(`Schedule status: ${schedule.status}, run count: ${schedule.runCount}`)
+
+  // Pause, resume, or delete
+  // await schedule.pause()
+  // await schedule.resume()
+  // await schedule.delete()
+}
+
+// List all active schedules
+const activeSchedules = await Schedule.list({ status: 'active' })
+console.log(`Active schedules: ${activeSchedules.length}`)
 
 await QueueManager.destroy()

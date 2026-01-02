@@ -1,5 +1,11 @@
 import type { Adapter, AcquiredJob } from '../../src/contracts/adapter.js'
-import type { JobData } from '../../src/types/main.js'
+import type {
+  JobData,
+  ScheduleConfig,
+  ScheduleData,
+  ScheduleListOptions,
+} from '../../src/types/main.js'
+import { randomUUID } from 'node:crypto'
 
 interface ActiveJob {
   job: JobData
@@ -14,7 +20,7 @@ export class MemoryAdapter implements Adapter {
   #queues: Map<string, JobData[]> = new Map()
   #activeJobs: Map<string, ActiveJob> = new Map()
   #pendingTimeouts: Set<NodeJS.Timeout> = new Set()
-  #cancelledRepeats: Set<string> = new Set()
+  #schedules: Map<string, ScheduleData> = new Map()
 
   setWorkerId(_workerId: string): void {}
 
@@ -157,11 +163,105 @@ export class MemoryAdapter implements Adapter {
     return Promise.resolve()
   }
 
-  async cancelRepeat(groupId: string): Promise<void> {
-    this.#cancelledRepeats.add(groupId)
+  async createSchedule(config: ScheduleConfig): Promise<string> {
+    const id = config.id ?? randomUUID()
+    const now = new Date()
+
+    const schedule: ScheduleData = {
+      id,
+      jobName: config.jobName,
+      payload: config.payload,
+      cronExpression: config.cronExpression ?? null,
+      everyMs: config.everyMs ?? null,
+      timezone: config.timezone,
+      from: config.from ?? null,
+      to: config.to ?? null,
+      limit: config.limit ?? null,
+      runCount: 0,
+      nextRunAt: null, // Will be calculated by the caller
+      lastRunAt: null,
+      status: 'active',
+      createdAt: now,
+    }
+
+    this.#schedules.set(id, schedule)
+    return id
   }
 
-  async isRepeatCancelled(groupId: string): Promise<boolean> {
-    return this.#cancelledRepeats.has(groupId)
+  async getSchedule(id: string): Promise<ScheduleData | null> {
+    return this.#schedules.get(id) ?? null
+  }
+
+  async listSchedules(options?: ScheduleListOptions): Promise<ScheduleData[]> {
+    const schedules = Array.from(this.#schedules.values())
+
+    if (options?.status) {
+      return schedules.filter((s) => s.status === options.status)
+    }
+
+    return schedules
+  }
+
+  async updateSchedule(
+    id: string,
+    updates: Partial<Pick<ScheduleData, 'status' | 'nextRunAt' | 'lastRunAt' | 'runCount'>>
+  ): Promise<void> {
+    const schedule = this.#schedules.get(id)
+    if (!schedule) return
+
+    if (updates.status !== undefined) schedule.status = updates.status
+    if (updates.nextRunAt !== undefined) schedule.nextRunAt = updates.nextRunAt
+    if (updates.lastRunAt !== undefined) schedule.lastRunAt = updates.lastRunAt
+    if (updates.runCount !== undefined) schedule.runCount = updates.runCount
+  }
+
+  async deleteSchedule(id: string): Promise<void> {
+    this.#schedules.delete(id)
+  }
+
+  async claimDueSchedule(): Promise<ScheduleData | null> {
+    const now = new Date()
+
+    // Find first due schedule
+    const schedule = Array.from(this.#schedules.values()).find((s) => {
+      if (s.status !== 'active') return false
+      if (s.nextRunAt === null || s.nextRunAt > now) return false
+      if (s.limit !== null && s.runCount >= s.limit) return false
+      if (s.to !== null && now > s.to) return false
+      return true
+    })
+
+    if (!schedule) return null
+
+    // Calculate next run
+    let nextRunAt: Date | null = null
+    if (schedule.everyMs) {
+      nextRunAt = new Date(now.getTime() + schedule.everyMs)
+    } else if (schedule.cronExpression) {
+      // For memory adapter in tests, just add 24h as approximation
+      // Real adapters will use cron-parser
+      nextRunAt = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+    }
+
+    // Check if limit will be reached after this run
+    const newRunCount = schedule.runCount + 1
+    if (schedule.limit !== null && newRunCount >= schedule.limit) {
+      nextRunAt = null // No more runs
+    }
+
+    // Check if end date will be passed
+    if (nextRunAt && schedule.to !== null && nextRunAt > schedule.to) {
+      nextRunAt = null // Past end date
+    }
+
+    // Clone schedule data before updating (return old state)
+    const claimedSchedule: ScheduleData = { ...schedule }
+
+    // Update schedule atomically
+    schedule.nextRunAt = nextRunAt
+    schedule.lastRunAt = now
+    schedule.runCount = newRunCount
+
+    return claimedSchedule
   }
 }

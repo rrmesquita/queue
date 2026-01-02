@@ -28,20 +28,20 @@ test.group('Adapter | Memory', (group) => {
 test.group('Adapter | Redis', (group) => {
   let connection: Redis
 
-  group.each.setup(() => {
+  group.each.setup(async () => {
     connection = new Redis({
       host: process.env.REDIS_HOST || 'localhost',
       port: Number.parseInt(process.env.REDIS_PORT || '6379', 10),
       keyPrefix: KEY_PREFIX,
-      db: 0,
+      db: 15, // Use db 15 for tests so we can safely flush it
     })
 
+    // Flush before test
+    await connection.flushdb()
+    console.log('[Redis Setup] Flushed DB 15, keys after flush:', await connection.keys('*'))
+
     return async () => {
-      const keys = await connection.keys(`${KEY_PREFIX}*`)
-      if (keys.length > 0) {
-        const keysWithoutPrefix = keys.map((k) => k.replace(KEY_PREFIX, ''))
-        await connection.del(...keysWithoutPrefix)
-      }
+      console.log('[Redis Teardown] Keys before quit:', await connection.keys('*'))
       await connection.quit()
     }
   })

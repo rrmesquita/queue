@@ -1,4 +1,4 @@
-import type { JobData } from '../types/main.js'
+import type { JobData, ScheduleConfig, ScheduleData, ScheduleListOptions } from '../types/main.js'
 
 /**
  * A job that has been acquired by a worker for processing.
@@ -151,20 +151,62 @@ export interface Adapter {
   destroy(): Promise<void>
 
   /**
-   * Cancel a repeating job chain.
+   * Create or update a schedule.
    *
-   * After calling this, `isRepeatCancelled` will return true for this groupId,
-   * and the worker will not re-dispatch jobs with this groupId.
+   * If a schedule with the given id exists, it will be updated (upsert).
+   * Otherwise, a new schedule is created.
    *
-   * @param groupId - The repeat chain identifier (from RepeatConfig.groupId)
+   * @param config - The schedule configuration
+   * @returns The schedule ID
    */
-  cancelRepeat(groupId: string): Promise<void>
+  createSchedule(config: ScheduleConfig): Promise<string>
 
   /**
-   * Check if a repeat chain has been cancelled.
+   * Get a schedule by ID.
    *
-   * @param groupId - The repeat chain identifier to check
-   * @returns True if the repeat chain has been cancelled
+   * @param id - The schedule ID
+   * @returns The schedule data, or null if not found
    */
-  isRepeatCancelled(groupId: string): Promise<boolean>
+  getSchedule(id: string): Promise<ScheduleData | null>
+
+  /**
+   * List all schedules matching the given options.
+   *
+   * @param options - Optional filters for listing
+   * @returns Array of schedule data
+   */
+  listSchedules(options?: ScheduleListOptions): Promise<ScheduleData[]>
+
+  /**
+   * Update a schedule's status or run metadata.
+   *
+   * @param id - The schedule ID
+   * @param updates - The fields to update
+   */
+  updateSchedule(
+    id: string,
+    updates: Partial<Pick<ScheduleData, 'status' | 'nextRunAt' | 'lastRunAt' | 'runCount'>>
+  ): Promise<void>
+
+  /**
+   * Delete a schedule permanently.
+   *
+   * @param id - The schedule ID to delete
+   */
+  deleteSchedule(id: string): Promise<void>
+
+  /**
+   * Atomically claim a due schedule for execution.
+   *
+   * This method:
+   * 1. Finds ONE schedule where nextRunAt <= now AND status = 'active'
+   * 2. Calculates and updates its nextRunAt to the next occurrence
+   * 3. Increments runCount and sets lastRunAt
+   * 4. Returns the schedule data for job dispatching
+   *
+   * The atomic nature prevents multiple workers from claiming the same schedule.
+   *
+   * @returns The claimed schedule, or null if no schedules are due
+   */
+  claimDueSchedule(): Promise<ScheduleData | null>
 }

@@ -12,50 +12,13 @@ export type Duration = number | string
  *
  * @example
  * ```typescript
- * const { jobId, repeatId } = await SyncJob.dispatch(payload).every('5s')
- *
- * // Later, cancel the repeat chain
- * if (repeatId) {
- *   await QueueManager.cancelRepeat(repeatId)
- * }
+ * const { jobId } = await SendEmailJob.dispatch(payload)
+ * console.log(`Dispatched job: ${jobId}`)
  * ```
  */
 export interface DispatchResult {
   /** Unique identifier for this specific job instance */
   jobId: string
-
-  /**
-   * Unique identifier for the repeat chain.
-   * Only present when the job was dispatched with `.every()`.
-   * Use this to cancel the repeat chain via `QueueManager.cancelRepeat()`.
-   */
-  repeatId?: string
-}
-
-/**
- * Configuration for repeating jobs.
- *
- * When a job completes successfully and has a repeat config,
- * it will be automatically re-dispatched after the specified interval.
- */
-export interface RepeatConfig {
-  /** Interval in milliseconds between job executions */
-  interval: number
-
-  /**
-   * Number of repetitions remaining.
-   * - undefined = infinite repetitions
-   * - 0 = no more repetitions (last run)
-   * - n = n repetitions remaining
-   */
-  remaining?: number
-
-  /**
-   * Unique identifier for the repeat chain.
-   * All jobs in the same repeat chain share this ID.
-   * Used for cancelling the entire repeat chain.
-   */
-  groupId?: string
 }
 
 export interface JobData {
@@ -66,9 +29,6 @@ export interface JobData {
   priority?: number
   nextRetryAt?: Date
   stalledCount?: number
-
-  /** Configuration for repeating this job after completion */
-  repeat?: RepeatConfig
 }
 
 export interface JobOptions {
@@ -118,27 +78,6 @@ export interface JobContext {
 
   /** Number of times this job has been recovered from stalled state */
   stalledCount: number
-
-  /**
-   * Whether this job is configured to repeat.
-   * True if the job was dispatched with `.every()`.
-   */
-  isRepeating: boolean
-
-  /**
-   * Number of repetitions remaining after this execution.
-   * - undefined = infinite repetitions
-   * - 0 = this is the last execution
-   * - n = n more executions after this one
-   */
-  repeatRemaining?: number
-
-  /**
-   * Unique identifier for the repeat chain.
-   * Only present for repeating jobs (when `.every()` was used).
-   * All jobs in the same repeat chain share this ID.
-   */
-  repeatId?: string
 }
 
 export type JobClass<T extends Job = Job> = (new (payload: any, context: JobContext) => T) & {
@@ -258,6 +197,108 @@ export type WorkerCycle =
   | { type: 'error'; error: Error; suggestedDelay: Duration }
 
 export type AdapterFactory<T extends Adapter = Adapter> = () => T
+
+/**
+ * Status of a schedule.
+ */
+export type ScheduleStatus = 'active' | 'paused'
+
+/**
+ * Configuration for creating a schedule.
+ * Used by ScheduleBuilder to collect schedule options before creation.
+ */
+export interface ScheduleConfig {
+  /** Optional ID for the schedule (UUID if not set). Used for upsert. */
+  id?: string
+
+  /** Job class name */
+  jobName: string
+
+  /** Job payload */
+  payload: any
+
+  /** Cron expression (mutually exclusive with everyMs) */
+  cronExpression?: string
+
+  /** Interval in milliseconds (mutually exclusive with cronExpression) */
+  everyMs?: number
+
+  /** IANA timezone for cron evaluation */
+  timezone: string
+
+  /** Start boundary - no jobs dispatched before this */
+  from?: Date
+
+  /** End boundary - no jobs dispatched after this */
+  to?: Date
+
+  /** Maximum number of runs (null = unlimited) */
+  limit?: number
+}
+
+/**
+ * Persisted schedule data.
+ * Represents a schedule stored in the adapter.
+ */
+export interface ScheduleData {
+  /** Unique identifier */
+  id: string
+
+  /** Job class name */
+  jobName: string
+
+  /** Job payload */
+  payload: any
+
+  /** Cron expression (null if using interval) */
+  cronExpression: string | null
+
+  /** Interval in milliseconds (null if using cron) */
+  everyMs: number | null
+
+  /** IANA timezone */
+  timezone: string
+
+  /** Start boundary - no jobs dispatched before this */
+  from: Date | null
+
+  /** End boundary - no jobs dispatched after this */
+  to: Date | null
+
+  /** Maximum number of runs */
+  limit: number | null
+
+  /** Number of times this schedule has run */
+  runCount: number
+
+  /** Next scheduled run time */
+  nextRunAt: Date | null
+
+  /** Last run time */
+  lastRunAt: Date | null
+
+  /** Current status */
+  status: ScheduleStatus
+
+  /** When the schedule was created */
+  createdAt: Date
+}
+
+/**
+ * Result returned when creating a schedule.
+ */
+export interface ScheduleResult {
+  /** Unique identifier for the schedule */
+  scheduleId: string
+}
+
+/**
+ * Options for listing schedules.
+ */
+export interface ScheduleListOptions {
+  /** Filter by status */
+  status?: ScheduleStatus
+}
 
 export interface QueueManagerConfig {
   default: string
