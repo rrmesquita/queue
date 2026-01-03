@@ -522,19 +522,19 @@ export class Worker {
       debug(
         'worker %s: dispatching scheduled job %s (schedule: %s, runCount: %d)',
         this.#id,
-        schedule.jobName,
+        schedule.name,
         schedule.id,
         schedule.runCount + 1
       )
 
       // Get the job class to determine the target queue
-      const JobClass = Locator.get(schedule.jobName)
+      const JobClass = Locator.get(schedule.name)
       const queue = JobClass?.options?.queue ?? 'default'
 
       // Dispatch the job to the queue
       await this.#adapter.pushOn(queue, {
         id: randomUUID(),
-        name: schedule.jobName,
+        name: schedule.name,
         payload: schedule.payload,
         attempts: 0,
         priority: JobClass?.options?.priority,

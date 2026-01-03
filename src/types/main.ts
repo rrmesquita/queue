@@ -324,7 +324,7 @@ export interface ScheduleConfig {
   id?: string
 
   /** Job class name */
-  jobName: string
+  name: string
 
   /** Job payload */
   payload: any
@@ -357,7 +357,7 @@ export interface ScheduleData {
   id: string
 
   /** Job class name */
-  jobName: string
+  name: string
 
   /** Job payload */
   payload: any

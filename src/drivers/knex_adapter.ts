@@ -101,7 +101,7 @@ export class KnexAdapter implements Adapter {
       await this.#connection.schema.createTable(this.#schedulesTable, (table) => {
         table.string('id', 255).primary()
         table.string('status', 50).notNullable().defaultTo('active')
-        table.string('job_name', 255).notNullable()
+        table.string('name', 255).notNullable()
         table.text('payload').notNullable()
         table.string('cron_expression', 255).nullable()
         table.bigint('every_ms').unsigned().nullable()
@@ -399,7 +399,7 @@ export class KnexAdapter implements Adapter {
 
     const data = {
       id,
-      job_name: config.jobName,
+      name: config.name,
       payload: JSON.stringify(config.payload),
       cron_expression: config.cronExpression ?? null,
       every_ms: config.everyMs ?? null,
@@ -419,7 +419,7 @@ export class KnexAdapter implements Adapter {
       })
       .onConflict('id')
       .merge({
-        job_name: data.job_name,
+        name: data.name,
         payload: data.payload,
         cron_expression: data.cron_expression,
         every_ms: data.every_ms,
@@ -547,7 +547,7 @@ export class KnexAdapter implements Adapter {
   #rowToScheduleData(row: any): ScheduleData {
     return {
       id: row.id,
-      jobName: row.job_name,
+      name: row.name,
       payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
       cronExpression: row.cron_expression ?? null,
       everyMs: row.every_ms ? Number(row.every_ms) : null,

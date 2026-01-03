@@ -29,7 +29,7 @@ test.group('ScheduleBuilder', (group) => {
 
     const schedule = await Schedule.find(scheduleId)
     assert.isNotNull(schedule)
-    assert.equal(schedule!.jobName, 'CleanupJob')
+    assert.equal(schedule!.name, 'CleanupJob')
     assert.deepEqual(schedule!.payload, { days: 30 })
     assert.equal(schedule!.cronExpression, '0 0 * * *')
     assert.isNull(schedule!.everyMs)
@@ -46,7 +46,7 @@ test.group('ScheduleBuilder', (group) => {
 
     const schedule = await Schedule.find(scheduleId)
     assert.isNotNull(schedule)
-    assert.equal(schedule!.jobName, 'SyncJob')
+    assert.equal(schedule!.name, 'SyncJob')
     assert.equal(schedule!.everyMs, 5 * 60 * 1000)
     assert.isNull(schedule!.cronExpression)
   })
@@ -248,7 +248,7 @@ test.group('Schedule', (group) => {
     assert.isNotNull(schedule)
     assert.instanceOf(schedule, Schedule)
     assert.equal(schedule!.id, 'test-schedule')
-    assert.equal(schedule!.jobName, 'TestJob')
+    assert.equal(schedule!.name, 'TestJob')
     assert.deepEqual(schedule!.payload, { data: 'test' })
   })
 
@@ -370,7 +370,7 @@ test.group('Schedule', (group) => {
     const schedule = await Schedule.find('full-schedule')
 
     assert.equal(schedule!.id, 'full-schedule')
-    assert.equal(schedule!.jobName, 'FullJob')
+    assert.equal(schedule!.name, 'FullJob')
     assert.deepEqual(schedule!.payload, { key: 'value' })
     assert.equal(schedule!.cronExpression, '0 9 * * 1-5')
     assert.isNull(schedule!.everyMs)
@@ -421,7 +421,7 @@ test.group('Job.schedule()', (group) => {
     const schedule = await Schedule.find(scheduleId)
 
     assert.isNotNull(schedule)
-    assert.equal(schedule!.jobName, 'TestScheduleJob')
+    assert.equal(schedule!.name, 'TestScheduleJob')
     assert.deepEqual(schedule!.payload, { value: 'hello' })
   })
 
@@ -483,7 +483,7 @@ test.group('claimDueSchedule', (group) => {
 
     assert.isNotNull(claimed)
     assert.equal(claimed!.id, 'due-schedule')
-    assert.equal(claimed!.jobName, 'DueJob')
+    assert.equal(claimed!.name, 'DueJob')
     assert.deepEqual(claimed!.payload, { key: 'value' })
   })
 

@@ -32,8 +32,8 @@ export class Schedule {
     return this.#data.id
   }
 
-  get jobName(): string {
-    return this.#data.jobName
+  get name(): string {
+    return this.#data.name
   }
 
   get payload(): any {
@@ -155,7 +155,7 @@ export class Schedule {
     const adapter = QueueManager.use()
 
     // Dispatch the job
-    const dispatcher = new JobDispatcher(this.#data.jobName, this.#data.payload)
+    const dispatcher = new JobDispatcher(this.#data.name, this.#data.payload)
     await dispatcher.run()
 
     // Update run metadata

@@ -1589,7 +1589,7 @@ test.group('Worker | Scheduler Integration', () => {
     // Create a due schedule
     await sharedAdapter.createSchedule({
       id: 'test-schedule',
-      jobName: 'ScheduledJob',
+      name: 'ScheduledJob',
       payload: { scheduled: true },
       everyMs: 60000,
       timezone: 'UTC',
@@ -1638,7 +1638,7 @@ test.group('Worker | Scheduler Integration', () => {
     // Create a schedule that's not due yet (future)
     await sharedAdapter.createSchedule({
       id: 'future-schedule',
-      jobName: 'ScheduledJob',
+      name: 'ScheduledJob',
       payload: {},
       everyMs: 60000,
       timezone: 'UTC',
@@ -1681,7 +1681,7 @@ test.group('Worker | Scheduler Integration', () => {
     // Create a due schedule
     await sharedAdapter.createSchedule({
       id: 'count-schedule',
-      jobName: 'ScheduledJob',
+      name: 'ScheduledJob',
       payload: {},
       everyMs: 60000,
       timezone: 'UTC',
@@ -1736,7 +1736,7 @@ test.group('Worker | Scheduler Integration', () => {
     // Create a due schedule
     await sharedAdapter.createSchedule({
       id: 'queued-schedule',
-      jobName: 'QueuedScheduledJob',
+      name: 'QueuedScheduledJob',
       payload: {},
       everyMs: 60000,
       timezone: 'UTC',
@@ -1783,7 +1783,7 @@ test.group('Worker | Scheduler Integration', () => {
     // Create a due schedule but pause it
     await sharedAdapter.createSchedule({
       id: 'paused-schedule',
-      jobName: 'ScheduledJob',
+      name: 'ScheduledJob',
       payload: {},
       everyMs: 60000,
       timezone: 'UTC',
@@ -1831,7 +1831,7 @@ test.group('Worker | Scheduler Integration', () => {
     for (const name of ['job-a', 'job-b', 'job-c']) {
       await sharedAdapter.createSchedule({
         id: `schedule-${name}`,
-        jobName: 'MultiScheduleJob',
+        name: 'MultiScheduleJob',
         payload: { name },
         everyMs: 60000,
         timezone: 'UTC',
@@ -1883,7 +1883,7 @@ test.group('Worker | Scheduler Integration', () => {
     // Create a due schedule
     await sharedAdapter.createSchedule({
       id: 'regular-schedule',
-      jobName: 'RegularJob',
+      name: 'RegularJob',
       payload: { type: 'scheduled' },
       everyMs: 60000,
       timezone: 'UTC',

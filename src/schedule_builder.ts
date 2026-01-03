@@ -23,7 +23,7 @@ import * as errors from './exceptions.js'
  * ```
  */
 export class ScheduleBuilder implements PromiseLike<ScheduleResult> {
-  #jobName: string
+  #name: string
   #payload: any
   #id?: string
   #cronExpression?: string
@@ -33,8 +33,8 @@ export class ScheduleBuilder implements PromiseLike<ScheduleResult> {
   #to?: Date
   #limit?: number
 
-  constructor(jobName: string, payload: any) {
-    this.#jobName = jobName
+  constructor(name: string, payload: any) {
+    this.#name = name
     this.#payload = payload
   }
 
@@ -136,8 +136,8 @@ export class ScheduleBuilder implements PromiseLike<ScheduleResult> {
     }
 
     const config: ScheduleConfig = {
-      id: this.#id ?? this.#jobName,
-      jobName: this.#jobName,
+      id: this.#id ?? this.#name,
+      name: this.#name,
       payload: this.#payload,
       cronExpression: this.#cronExpression,
       everyMs: this.#everyMs,

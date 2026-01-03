@@ -428,7 +428,7 @@ export class RedisAdapter implements Adapter {
 
     const scheduleData: Record<string, string> = {
       id,
-      job_name: config.jobName,
+      name: config.name,
       payload: JSON.stringify(config.payload),
       timezone: config.timezone,
       status: 'active',
@@ -566,7 +566,7 @@ export class RedisAdapter implements Adapter {
   #hashToScheduleData(data: Record<string, string>): ScheduleData {
     return {
       id: data.id,
-      jobName: data.job_name,
+      name: data.name,
       payload: JSON.parse(data.payload || '{}'),
       cronExpression: data.cron_expression || null,
       everyMs: data.every_ms ? Number.parseInt(data.every_ms, 10) : null,

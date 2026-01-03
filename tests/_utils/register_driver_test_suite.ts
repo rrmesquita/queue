@@ -410,7 +410,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     const adapter = await options.createAdapter()
 
     const id = await adapter.createSchedule({
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: { foo: 'bar' },
       everyMs: 5000,
       timezone: 'UTC',
@@ -420,7 +420,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     const schedule = await adapter.getSchedule(id)
     assert.isNotNull(schedule)
-    assert.equal(schedule!.jobName, 'TestJob')
+    assert.equal(schedule!.name, 'TestJob')
     assert.deepEqual(schedule!.payload, { foo: 'bar' })
     assert.equal(schedule!.everyMs, 5000)
     assert.equal(schedule!.status, 'active')
@@ -431,7 +431,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     const id = await adapter.createSchedule({
       id: 'my-custom-id',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: {},
       cronExpression: '0 0 * * *',
       timezone: 'UTC',
@@ -450,7 +450,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     // Create initial schedule
     await adapter.createSchedule({
       id: 'upsert-test',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: { version: 1 },
       everyMs: 5000,
       timezone: 'UTC',
@@ -459,7 +459,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     // Upsert with new values
     await adapter.createSchedule({
       id: 'upsert-test',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: { version: 2 },
       everyMs: 10000,
       timezone: 'Europe/Paris',
@@ -483,14 +483,14 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.createSchedule({
       id: 'list-test-1',
-      jobName: 'Job1',
+      name: 'Job1',
       payload: {},
       everyMs: 5000,
       timezone: 'UTC',
     })
     await adapter.createSchedule({
       id: 'list-test-2',
-      jobName: 'Job2',
+      name: 'Job2',
       payload: {},
       everyMs: 10000,
       timezone: 'UTC',
@@ -508,14 +508,14 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.createSchedule({
       id: 'filter-active',
-      jobName: 'Job1',
+      name: 'Job1',
       payload: {},
       everyMs: 5000,
       timezone: 'UTC',
     })
     await adapter.createSchedule({
       id: 'filter-paused',
-      jobName: 'Job2',
+      name: 'Job2',
       payload: {},
       everyMs: 10000,
       timezone: 'UTC',
@@ -537,7 +537,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.createSchedule({
       id: 'update-status-test',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: {},
       everyMs: 5000,
       timezone: 'UTC',
@@ -554,7 +554,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.createSchedule({
       id: 'update-meta-test',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: {},
       everyMs: 5000,
       timezone: 'UTC',
@@ -580,7 +580,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.createSchedule({
       id: 'delete-test',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: {},
       everyMs: 5000,
       timezone: 'UTC',
@@ -598,7 +598,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     // Create schedule with nextRunAt in the future
     await adapter.createSchedule({
       id: 'future-schedule',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: {},
       everyMs: 60000,
       timezone: 'UTC',
@@ -617,7 +617,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.createSchedule({
       id: 'due-schedule',
-      jobName: 'DueJob',
+      name: 'DueJob',
       payload: { key: 'value' },
       everyMs: 5000,
       timezone: 'UTC',
@@ -632,7 +632,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     assert.isNotNull(claimed)
     assert.equal(claimed!.id, 'due-schedule')
-    assert.equal(claimed!.jobName, 'DueJob')
+    assert.equal(claimed!.name, 'DueJob')
     assert.deepEqual(claimed!.payload, { key: 'value' })
   })
 
@@ -641,7 +641,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.createSchedule({
       id: 'claim-update-test',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: {},
       everyMs: 10000,
       timezone: 'UTC',
@@ -662,7 +662,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.createSchedule({
       id: 'runcount-test',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: {},
       everyMs: 5000,
       timezone: 'UTC',
@@ -686,7 +686,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.createSchedule({
       id: 'paused-claim-test',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: {},
       everyMs: 5000,
       timezone: 'UTC',
@@ -706,7 +706,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     await adapter.createSchedule({
       id: 'limit-claim-test',
-      jobName: 'TestJob',
+      name: 'TestJob',
       payload: {},
       everyMs: 5000,
       timezone: 'UTC',
@@ -731,7 +731,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
       // Create a single due schedule
       await adapter1.createSchedule({
         id: 'concurrent-claim-test',
-        jobName: 'TestJob',
+        name: 'TestJob',
         payload: {},
         everyMs: 60000,
         timezone: 'UTC',
@@ -758,7 +758,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
       // Create a single due schedule
       await adapters[0].createSchedule({
         id: 'stress-test-schedule',
-        jobName: 'StressJob',
+        name: 'StressJob',
         payload: { test: true },
         everyMs: 60000,
         timezone: 'UTC',
@@ -778,7 +778,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
       // The claimed schedule should have the correct data
       const claimed = claimedSchedules[0]!
       assert.equal(claimed.id, 'stress-test-schedule')
-      assert.equal(claimed.jobName, 'StressJob')
+      assert.equal(claimed.name, 'StressJob')
       assert.deepEqual(claimed.payload, { test: true })
     })
   }

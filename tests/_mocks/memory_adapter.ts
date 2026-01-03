@@ -169,7 +169,7 @@ export class MemoryAdapter implements Adapter {
 
     const schedule: ScheduleData = {
       id,
-      jobName: config.jobName,
+      name: config.name,
       payload: config.payload,
       cronExpression: config.cronExpression ?? null,
       everyMs: config.everyMs ?? null,
