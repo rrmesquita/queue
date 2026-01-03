@@ -313,10 +313,10 @@ export class Worker {
 
     debug('worker %s: executing job %s (%s)', this.#id, job.id, job.name)
 
-    const { instance, options, timeout } = await this.#initJob(job, queue)
+    const { instance, options, timeout, context, payload } = await this.#initJob(job, queue)
 
     try {
-      await this.#executeWithTimeout(instance, timeout)
+      await this.#executeWithTimeout(instance, payload, context, timeout)
       await this.#adapter.completeJob(job.id, queue)
 
       const duration = (performance.now() - startTime).toFixed(2)
@@ -371,11 +371,17 @@ export class Worker {
   async #initJob(
     job: AcquiredJob,
     queue: string
-  ): Promise<{ instance: Job; options: JobOptions; timeout: number | undefined }> {
+  ): Promise<{
+    instance: Job
+    options: JobOptions
+    timeout: number | undefined
+    context: JobContext
+    payload: any
+  }> {
     try {
       const JobClass = Locator.getOrThrow(job.name)
 
-      const context: JobContext = Object.freeze({
+      const context: JobContext = {
         jobId: job.id,
         name: job.name,
         attempt: job.attempts + 1,
@@ -383,16 +389,14 @@ export class Worker {
         priority: job.priority ?? DEFAULT_PRIORITY,
         acquiredAt: new Date(job.acquiredAt),
         stalledCount: job.stalledCount ?? 0,
-      })
+      }
 
       const jobFactory = QueueManager.getJobFactory()
-      const instance = jobFactory
-        ? await jobFactory(JobClass, job.payload, context)
-        : new JobClass(job.payload, context)
+      const instance = jobFactory ? await jobFactory(JobClass) : new JobClass()
       const options = JobClass.options || {}
       const timeout = this.#getJobTimeout(options)
 
-      return { instance, options, timeout }
+      return { instance, options, timeout, context, payload: job.payload }
     } catch (error) {
       debug('worker %s: failed to initialize job %s (%s)', this.#id, job.id, job.name)
       await this.#adapter.failJob(job.id, queue, error as Error)
@@ -412,12 +416,19 @@ export class Worker {
     return undefined
   }
 
-  async #executeWithTimeout(instance: Job, timeout?: number): Promise<void> {
+  async #executeWithTimeout(
+    instance: Job,
+    payload: any,
+    context: JobContext,
+    timeout?: number
+  ): Promise<void> {
     if (!timeout) {
+      instance.$hydrate(payload, context)
       return instance.execute()
     }
 
     const signal = AbortSignal.timeout(timeout)
+    instance.$hydrate(payload, context, signal)
 
     const abortPromise = new Promise<never>((_, reject) => {
       signal.addEventListener('abort', () => {
@@ -425,7 +436,7 @@ export class Worker {
       })
     })
 
-    await Promise.race([instance.execute(signal), abortPromise])
+    await Promise.race([instance.execute(), abortPromise])
   }
 
   async #acquireNextJob(queues: string[]): Promise<{ job: AcquiredJob; queue: string } | null> {

@@ -8,12 +8,14 @@ import type { JobContext, JobOptions } from './types/main.js'
  * Extend this class to create your own jobs. Each job must implement
  * the `execute()` method which contains the job's business logic.
  *
+ * The constructor is reserved for dependency injection. Payload and context
+ * are provided separately via the `$hydrate()` method (called by the worker).
+ *
  * @typeParam Payload - The type of data this job receives
  *
  * @example
  * ```typescript
  * import { Job } from '@boringnode/queue'
- * import type { JobContext } from '@boringnode/queue'
  *
  * interface SendEmailPayload {
  *   to: string
@@ -27,13 +29,14 @@ import type { JobContext, JobOptions } from './types/main.js'
  *     maxRetries: 3,
  *   }
  *
- *   constructor(payload: SendEmailPayload, context: JobContext) {
- *     super(payload, context)
+ *   // Constructor is for dependency injection only
+ *   constructor(private mailer: MailerService) {
+ *     super()
  *   }
  *
  *   async execute() {
  *     console.log(`Attempt ${this.context.attempt} for job ${this.context.jobId}`)
- *     await sendEmail(this.payload.to, this.payload.subject, this.payload.body)
+ *     await this.mailer.send(this.payload.to, this.payload.subject, this.payload.body)
  *   }
  *
  *   async failed(error: Error) {
@@ -43,13 +46,43 @@ import type { JobContext, JobOptions } from './types/main.js'
  * ```
  */
 export abstract class Job<Payload = any> {
-  readonly #payload: Payload
-  readonly #context: JobContext
+  #payload!: Payload
+  #context!: JobContext
+  #signal?: AbortSignal
 
-  /** Static options for this job class (queue, retries, timeout, etc.) */
+  /**
+   * Static options for this job class.
+   *
+   * Override this property in subclasses to configure job behavior
+   * such as queue name, retry policy, timeout, and more.
+   *
+   * @example
+   * ```typescript
+   * class SendEmailJob extends Job<SendEmailPayload> {
+   *   static options = {
+   *     queue: 'emails',
+   *     maxRetries: 3,
+   *     timeout: '30s',
+   *   }
+   * }
+   * ```
+   */
   static options: JobOptions = {}
 
-  /** The payload data passed to this job instance */
+  /**
+   * The payload data passed to this job instance.
+   *
+   * Contains the data provided when the job was dispatched.
+   * Available after the job has been hydrated by the worker.
+   *
+   * @example
+   * ```typescript
+   * async execute() {
+   *   const { to, subject, body } = this.payload
+   *   await sendEmail(to, subject, body)
+   * }
+   * ```
+   */
   get payload(): Payload {
     return this.#payload
   }
@@ -75,14 +108,42 @@ export abstract class Job<Payload = any> {
   }
 
   /**
-   * Create a new job instance.
+   * The abort signal for timeout handling.
+   *
+   * Check `signal.aborted` in long-running operations to handle timeouts gracefully.
+   *
+   * @example
+   * ```typescript
+   * async execute() {
+   *   for (const item of this.payload.items) {
+   *     if (this.signal?.aborted) {
+   *       throw new Error('Job timed out')
+   *     }
+   *     await processItem(item)
+   *   }
+   * }
+   * ```
+   */
+  get signal(): AbortSignal | undefined {
+    return this.#signal
+  }
+
+  /**
+   * Hydrate the job with payload, context, and optional abort signal.
+   *
+   * This method is called by the worker after instantiation to provide
+   * the job's runtime data. It should not be called directly by user code.
    *
    * @param payload - The data to be processed by this job
-   * @param context - The job execution context (provided by the worker)
+   * @param context - The job execution context
+   * @param signal - Optional abort signal for timeout handling
+   *
+   * @internal
    */
-  constructor(payload: Payload, context: JobContext) {
+  $hydrate(payload: Payload, context: JobContext, signal?: AbortSignal): void {
     this.#payload = payload
     this.#context = Object.freeze(context)
+    this.#signal = signal
   }
 
   /**
@@ -109,7 +170,7 @@ export abstract class Job<Payload = any> {
    * ```
    */
   static dispatch<T extends Job>(
-    this: new (payload: any, context: JobContext) => T,
+    this: new (...args: any[]) => T,
     payload: T extends Job<infer P> ? P : never
   ): JobDispatcher<T extends Job<infer P> ? P : never> {
     const dispatcher = new JobDispatcher<T extends Job<infer P> ? P : never>(
@@ -158,7 +219,7 @@ export abstract class Job<Payload = any> {
    * ```
    */
   static schedule<T extends Job>(
-    this: new (payload: any, context: JobContext) => T,
+    this: new (...args: any[]) => T,
     payload: T extends Job<infer P> ? P : never
   ): ScheduleBuilder {
     return new ScheduleBuilder((this as any).jobName, payload)
@@ -170,15 +231,15 @@ export abstract class Job<Payload = any> {
    * This method is called by the worker when processing the job.
    * Implement your job's logic here.
    *
-   * @param signal - Optional AbortSignal for timeout handling.
-   *                 Check `signal.aborted` for long-running operations.
+   * For timeout handling, use `this.signal` which is available after hydration.
+   *
    * @throws Any error thrown will trigger retry logic (if configured)
    *
    * @example
    * ```typescript
-   * async execute(signal?: AbortSignal) {
+   * async execute() {
    *   for (const item of this.payload.items) {
-   *     if (signal?.aborted) {
+   *     if (this.signal?.aborted) {
    *       throw new Error('Job timed out')
    *     }
    *     await processItem(item)
@@ -186,7 +247,7 @@ export abstract class Job<Payload = any> {
    * }
    * ```
    */
-  abstract execute(signal?: AbortSignal): Promise<void>
+  abstract execute(): Promise<void>
 
   /**
    * Called when the job has permanently failed (after all retries exhausted).

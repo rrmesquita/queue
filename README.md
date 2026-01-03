@@ -239,9 +239,9 @@ Schedule jobs to run in the future:
 ```typescript
 // Various time formats
 await SendEmailJob.dispatch(payload).in('30s') // 30 seconds
-await SendEmailJob.dispatch(payload).in('5m')  // 5 minutes
-await SendEmailJob.dispatch(payload).in('2h')  // 2 hours
-await SendEmailJob.dispatch(payload).in('1d')  // 1 day
+await SendEmailJob.dispatch(payload).in('5m') // 5 minutes
+await SendEmailJob.dispatch(payload).in('2h') // 2 hours
+await SendEmailJob.dispatch(payload).in('1d') // 1 day
 ```
 
 ## Priority
@@ -326,19 +326,44 @@ const config = {
 }
 ```
 
+### Handling Timeout Gracefully
+
+Jobs have access to an abort signal via `this.signal` to handle timeouts gracefully:
+
+```typescript
+export default class LongRunningJob extends Job<Payload> {
+  static readonly jobName = 'LongRunningJob'
+
+  static options: JobOptions = {
+    timeout: '30s',
+  }
+
+  async execute(): Promise<void> {
+    for (const item of this.payload.items) {
+      // Check if the job has been aborted
+      if (this.signal?.aborted) {
+        throw new Error('Job timed out')
+      }
+
+      await this.processItem(item)
+    }
+  }
+
+  private async processItem(item: any): Promise<void> {
+    // Pass the signal to fetch or other async operations
+    await fetch(item.url, { signal: this.signal })
+  }
+}
+```
+
 ## Job Context
 
 Every job has access to execution context via `this.context`. This provides metadata about the current job execution:
 
 ```typescript
 import { Job } from '@boringnode/queue'
-import type { JobContext } from '@boringnode/queue'
 
 export default class MyJob extends Job<Payload> {
-  constructor(payload: Payload, context: JobContext) {
-    super(payload, context)
-  }
-
   async execute(): Promise<void> {
     console.log(`Job ID: ${this.context.jobId}`)
     console.log(`Attempt: ${this.context.attempt}`) // 1, 2, 3...
@@ -367,7 +392,7 @@ export default class MyJob extends Job<Payload> {
 
 ## Dependency Injection
 
-Use the `jobFactory` option to integrate with IoC containers for dependency injection. This allows your jobs to receive injected services in their constructor.
+Use the `jobFactory` option to integrate with IoC containers for dependency injection. The constructor is reserved for injecting dependencies - payload and context are provided separately by the worker.
 
 ```typescript
 import { QueueManager } from '@boringnode/queue'
@@ -375,9 +400,9 @@ import { QueueManager } from '@boringnode/queue'
 await QueueManager.init({
   default: 'redis',
   adapters: { redis: redis(connection) },
-  jobFactory: async (JobClass, payload, context) => {
+  jobFactory: async (JobClass) => {
     // Use your IoC container to instantiate jobs
-    return app.container.make(JobClass, [payload, context])
+    return app.container.make(JobClass)
   },
 })
 ```
@@ -386,7 +411,6 @@ Example with injected dependencies:
 
 ```typescript
 import { Job } from '@boringnode/queue'
-import type { JobContext } from '@boringnode/queue'
 
 interface SendEmailPayload {
   to: string
@@ -397,12 +421,10 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
   static readonly jobName = 'SendEmailJob'
 
   constructor(
-    payload: SendEmailPayload,
-    context: JobContext,
     private mailer: MailerService, // Injected by IoC container
     private logger: Logger // Injected by IoC container
   ) {
-    super(payload, context)
+    super()
   }
 
   async execute(): Promise<void> {
@@ -412,7 +434,7 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
 }
 ```
 
-Without a `jobFactory`, jobs are instantiated with `new JobClass(payload, context)`.
+Without a `jobFactory`, jobs are instantiated with `new JobClass()`.
 
 ## Scheduled Jobs
 

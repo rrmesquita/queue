@@ -122,7 +122,7 @@ export class SyncAdapter implements Adapter {
       throw new Error(`Job class ${jobName} not found.`)
     }
 
-    const context: JobContext = Object.freeze({
+    const context: JobContext = {
       jobId: `sync-${Date.now()}`,
       name: jobName,
       attempt: 1,
@@ -130,13 +130,12 @@ export class SyncAdapter implements Adapter {
       priority: DEFAULT_PRIORITY,
       acquiredAt: new Date(),
       stalledCount: 0,
-    })
+    }
 
     const jobFactory = QueueManager.getJobFactory()
-    const jobInstance = jobFactory
-      ? await jobFactory(JobClass, payload, context)
-      : new JobClass(payload, context)
+    const jobInstance = jobFactory ? await jobFactory(JobClass) : new JobClass()
 
+    jobInstance.$hydrate(payload, context)
     await jobInstance.execute()
   }
 }

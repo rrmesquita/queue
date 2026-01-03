@@ -181,7 +181,13 @@ export interface JobContext {
   stalledCount: number
 }
 
-export type JobClass<T extends Job = Job> = (new (payload: any, context: JobContext) => T) & {
+/**
+ * Type representing a Job class constructor.
+ *
+ * The constructor accepts any arguments for dependency injection.
+ * Payload and context are provided separately via `$hydrate()`.
+ */
+export type JobClass<T extends Job = Job> = (new (...args: any[]) => T) & {
   options?: JobOptions
 }
 
@@ -189,31 +195,26 @@ export type JobClass<T extends Job = Job> = (new (payload: any, context: JobCont
  * Factory function for custom job instantiation.
  *
  * Use this to integrate with IoC containers for dependency injection.
- * The factory receives the job class, payload, and context, and must return
- * a job instance (or a Promise that resolves to one).
+ * The factory receives only the job class and should return an instance
+ * with all dependencies injected. The worker will call `$hydrate()` separately
+ * to provide payload, context, and signal.
  *
  * @param JobClass - The job class to instantiate
- * @param payload - The payload data for the job
- * @param context - The job execution context (jobId, attempt, queue, etc.)
  * @returns The job instance, or a Promise resolving to the instance
  *
  * @example
  * ```typescript
  * // With AdonisJS IoC container
- * const worker = new Worker({
- *   worker: {
- *     jobFactory: async (JobClass, payload, context) => {
- *       return app.container.make(JobClass, [payload, context])
- *     }
+ * await QueueManager.init({
+ *   default: 'redis',
+ *   adapters: { redis: redis() },
+ *   jobFactory: async (JobClass) => {
+ *     return app.container.make(JobClass)
  *   }
  * })
  * ```
  */
-export type JobFactory = (
-  JobClass: JobClass,
-  payload: any,
-  context: JobContext
-) => Job | Promise<Job>
+export type JobFactory = (JobClass: JobClass) => Job | Promise<Job>
 
 export interface RetryConfig {
   maxRetries?: number
@@ -414,15 +415,17 @@ export interface QueueManagerConfig {
    * Custom factory function for job instantiation.
    *
    * Use this to integrate with IoC containers for dependency injection.
-   * When provided, this factory is called instead of `new JobClass(payload, context)`.
+   * When provided, this factory is called instead of `new JobClass()`.
+   * The worker will call `$hydrate()` on the returned instance to provide
+   * payload, context, and signal.
    *
    * @example
    * ```typescript
    * await QueueManager.init({
    *   default: 'redis',
    *   adapters: { redis: redis() },
-   *   jobFactory: async (JobClass, payload, context) => {
-   *     return app.container.make(JobClass, [payload, context])
+   *   jobFactory: async (JobClass) => {
+   *     return app.container.make(JobClass)
    *   }
    * })
    * ```
