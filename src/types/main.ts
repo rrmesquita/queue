@@ -5,6 +5,18 @@ import { Job } from '../job.js'
 
 export type { Logger }
 
+/**
+ * Duration can be specified as milliseconds (number) or as a human-readable string.
+ *
+ * Supported string formats: '1s', '5m', '2h', '1d', etc.
+ *
+ * @example
+ * ```typescript
+ * const timeout: Duration = '30s'   // 30 seconds
+ * const delay: Duration = 5000      // 5000 milliseconds
+ * const interval: Duration = '5m'   // 5 minutes
+ * ```
+ */
 export type Duration = number | string
 
 /**
@@ -21,23 +33,112 @@ export interface DispatchResult {
   jobId: string
 }
 
+/**
+ * Internal representation of a job in the queue.
+ *
+ * This is used by adapters to store and retrieve job data.
+ * Not typically used directly by application code.
+ */
 export interface JobData {
+  /**
+   * Unique identifier for this job.
+   */
   id: string
+
+  /**
+   * Job class name.
+   */
   name: string
+
+  /**
+   * Serialized job payload.
+   */
   payload: any
+
+  /**
+   * Number of execution attempts so far.
+   */
   attempts: number
+
+  /**
+   * Job priority (lower = higher priority).
+   *
+   * @default 0
+   */
   priority?: number
+
+  /**
+   * When to retry this job next (for failed jobs).
+   */
   nextRetryAt?: Date
+
+  /**
+   * Number of times this job was recovered from stalled state.
+   */
   stalledCount?: number
 }
 
+/**
+ * Static options for a Job class.
+ *
+ * Define these as a static property on your Job class to configure
+ * default behavior for all instances.
+ *
+ * @example
+ * ```typescript
+ * class SendEmailJob extends Job<EmailPayload> {
+ *   static options: JobOptions = {
+ *     queue: 'emails',
+ *     maxRetries: 3,
+ *     timeout: '30s',
+ *   }
+ * }
+ * ```
+ */
 export interface JobOptions {
+  /**
+   * Queue name for this job.
+   *
+   * @default 'default'
+   */
   queue?: string
+
+  /**
+   * Adapter name or factory to use for this job.
+   */
   adapter?: string | (() => Adapter)
+
+  /**
+   * Maximum retry attempts before permanent failure.
+   *
+   * @default 3
+   */
   maxRetries?: number
+
+  /**
+   * Job priority (lower = higher priority).
+   *
+   * @default 0
+   */
   priority?: number
+
+  /**
+   * Retry configuration (backoff strategy, delays, etc.).
+   */
   retry?: RetryConfig
+
+  /**
+   * Maximum execution time before timeout.
+   *
+   * @default undefined (no timeout)
+   */
   timeout?: Duration
+
+  /**
+   * Whether to mark job as failed on timeout.
+   *
+   * @default true
+   */
   failOnTimeout?: boolean
 }
 
