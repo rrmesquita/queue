@@ -39,15 +39,13 @@ Create a job by extending the `Job` class:
 
 ```typescript
 import { Job } from '@boringnode/queue'
-import type { JobContext, JobOptions } from '@boringnode/queue/types'
+import type { JobOptions } from '@boringnode/queue/types'
 
 interface SendEmailPayload {
   to: string
 }
 
 export default class SendEmailJob extends Job<SendEmailPayload> {
-  static readonly jobName = 'SendEmailJob'
-
   static options: JobOptions = {
     queue: 'email',
   }
@@ -57,6 +55,10 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
   }
 }
 ```
+
+> **Note**: The job name defaults to the class name (`SendEmailJob`). You can override it with `name: 'CustomName'` in options if needed.
+>
+> **Warning**: If you minify your code in production, class names may be mangled. In that case, always specify `name` explicitly in your job options.
 
 ### 2. Configure the Queue Manager
 
@@ -250,8 +252,6 @@ Jobs with lower priority numbers are processed first:
 
 ```typescript
 export default class UrgentJob extends Job<Payload> {
-  static readonly jobName = 'UrgentJob'
-
   static options: JobOptions = {
     priority: 1, // Processed before default priority (5)
   }
@@ -270,8 +270,6 @@ Configure automatic retries with backoff strategies:
 import { exponentialBackoff, linearBackoff, fixedBackoff } from '@boringnode/queue'
 
 export default class ReliableJob extends Job<Payload> {
-  static readonly jobName = 'ReliableJob'
-
   static options: JobOptions = {
     maxRetries: 5,
     retry: {
@@ -303,8 +301,6 @@ Set a maximum execution time for jobs:
 
 ```typescript
 export default class LimitedJob extends Job<Payload> {
-  static readonly jobName = 'LimitedJob'
-
   static options: JobOptions = {
     timeout: '30s', // Maximum execution time
     failOnTimeout: false, // Retry on timeout (default)
@@ -332,8 +328,6 @@ Jobs have access to an abort signal via `this.signal` to handle timeouts gracefu
 
 ```typescript
 export default class LongRunningJob extends Job<Payload> {
-  static readonly jobName = 'LongRunningJob'
-
   static options: JobOptions = {
     timeout: '30s',
   }
@@ -418,8 +412,6 @@ interface SendEmailPayload {
 }
 
 export default class SendEmailJob extends Job<SendEmailPayload> {
-  static readonly jobName = 'SendEmailJob'
-
   constructor(
     private mailer: MailerService, // Injected by IoC container
     private logger: Logger // Injected by IoC container
@@ -540,9 +532,10 @@ const config = {
 Jobs must:
 
 - Extend the `Job` class
-- Have a static `jobName` property
 - Implement the `execute` method
 - Be exported as default
+
+The job name is automatically derived from the class name, or can be explicitly set via `static options = { name: 'CustomName' }`.
 
 ## Logging
 

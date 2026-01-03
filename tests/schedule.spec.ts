@@ -386,7 +386,6 @@ test.group('Schedule', (group) => {
 
 test.group('Job.schedule()', (group) => {
   class TestScheduleJob extends Job<{ value: string }> {
-    static readonly jobName = 'TestScheduleJob'
     async execute() {}
   }
 
@@ -394,7 +393,7 @@ test.group('Job.schedule()', (group) => {
     const sharedAdapter = memory()()
 
     // Register the job
-    Locator.register('TestScheduleJob', TestScheduleJob)
+    Locator.register(TestScheduleJob.name, TestScheduleJob)
 
     await QueueManager.init({
       default: 'memory',

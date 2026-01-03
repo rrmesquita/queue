@@ -21,8 +21,6 @@ export function registerWorkerConcurrencyTestSuite(options: WorkerConcurrencyTes
     const jobExecutions: Map<string, number> = new Map()
 
     class TrackingJob extends Job<{ jobId: string }> {
-      static jobName = 'TrackingJob'
-
       async execute() {
         const count = jobExecutions.get(this.payload.jobId) || 0
         jobExecutions.set(this.payload.jobId, count + 1)
@@ -31,7 +29,7 @@ export function registerWorkerConcurrencyTestSuite(options: WorkerConcurrencyTes
     }
 
     const adapter = await options.createAdapter()
-    Locator.register('TrackingJob', TrackingJob)
+    Locator.register(TrackingJob.name, TrackingJob)
 
     cleanup(() => Locator.clear())
 
@@ -78,8 +76,6 @@ export function registerWorkerConcurrencyTestSuite(options: WorkerConcurrencyTes
     const jobExecutions: Map<string, number> = new Map()
 
     class TrackingJob extends Job<{ jobId: string }> {
-      static jobName = 'TrackingJob'
-
       async execute() {
         const count = jobExecutions.get(this.payload.jobId) || 0
         jobExecutions.set(this.payload.jobId, count + 1)
@@ -88,7 +84,7 @@ export function registerWorkerConcurrencyTestSuite(options: WorkerConcurrencyTes
     }
 
     const adapter = await options.createAdapter()
-    Locator.register('TrackingJob', TrackingJob)
+    Locator.register(TrackingJob.name, TrackingJob)
 
     cleanup(() => Locator.clear())
 
@@ -137,8 +133,6 @@ export function registerWorkerConcurrencyTestSuite(options: WorkerConcurrencyTes
     const executionOrder: string[] = []
 
     class TrackingJob extends Job<{ jobId: string }> {
-      static jobName = 'TrackingJob'
-
       async execute() {
         executionOrder.push(this.payload.jobId)
         const count = jobExecutions.get(this.payload.jobId) || 0
@@ -149,7 +143,7 @@ export function registerWorkerConcurrencyTestSuite(options: WorkerConcurrencyTes
     }
 
     const adapter = await options.createAdapter()
-    Locator.register('TrackingJob', TrackingJob)
+    Locator.register(TrackingJob.name, TrackingJob)
 
     cleanup(() => Locator.clear())
 

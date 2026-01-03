@@ -7,8 +7,6 @@ interface SyncJobPayload {
 }
 
 export default class SyncJob extends Job<SyncJobPayload> {
-  static readonly jobName = 'SyncJob'
-
   static options: JobOptions = {
     adapter: 'sync',
   }

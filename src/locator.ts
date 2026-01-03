@@ -80,8 +80,9 @@ class LocatorSingleton {
           const module = await import(`file://${absolutePath}`)
           const JobClass = module.default as JobClass
 
-          if (JobClass && typeof JobClass === 'function' && JobClass.name) {
-            this.register(JobClass.name, JobClass)
+          if (JobClass && typeof JobClass === 'function') {
+            const jobName = JobClass.options?.name || JobClass.name
+            this.register(jobName, JobClass)
             registered++
           }
         } catch (error) {

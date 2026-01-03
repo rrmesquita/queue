@@ -5,8 +5,6 @@ import * as errors from '../src/exceptions.js'
 import SendEmailJob from '../examples/jobs/send_email_job.js'
 
 class TestJob extends Job<{ message: string }> {
-  static jobName = 'TestJob'
-
   execute(): Promise<void> {
     return Promise.resolve()
   }
@@ -17,13 +15,21 @@ class TestJob extends Job<{ message: string }> {
 }
 
 class AnotherTestJob extends Job<{ value: number }> {
-  static jobName = 'AnotherTestJob'
-
   execute(): Promise<void> {
     return Promise.resolve()
   }
 
   rescue(_error: Error): Promise<void> {
+    return Promise.resolve()
+  }
+}
+
+class JobWithCustomName extends Job<{ data: string }> {
+  static options = {
+    name: 'CustomNamedJob',
+  }
+
+  execute(): Promise<void> {
     return Promise.resolve()
   }
 }
@@ -96,5 +102,21 @@ test.group('Locator', (group) => {
       assert.instanceOf(error, errors.E_JOB_NOT_FOUND)
       assert.equal(error.message, 'Requested job "NonExistentJob" is not registered')
     }
+  })
+
+  test('should use constructor.name as default job name when registering from glob', async ({
+    assert,
+  }) => {
+    await Locator.registerFromGlob(['./examples/jobs/*.ts'])
+
+    // SendEmailJob has no options.name, so it should use the class name
+    assert.equal(Locator.get('SendEmailJob'), SendEmailJob)
+  })
+
+  test('should use options.name when provided', async ({ assert }) => {
+    Locator.register(JobWithCustomName.options.name!, JobWithCustomName)
+
+    assert.equal(Locator.get('CustomNamedJob'), JobWithCustomName)
+    assert.isUndefined(Locator.get('JobWithCustomName'))
   })
 })

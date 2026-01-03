@@ -17,8 +17,6 @@ interface MetricsJobPayload {
  * ```
  */
 export default class MetricsJob extends Job<MetricsJobPayload> {
-  static readonly jobName = 'MetricsJob'
-
   static options: JobOptions = {
     queue: 'metrics',
   }

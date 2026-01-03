@@ -6,8 +6,6 @@ interface SendEmailPayload {
 }
 
 export default class SendEmailJob extends Job<SendEmailPayload> {
-  static readonly jobName = 'SendEmailJob'
-
   static options: JobOptions = {
     queue: 'email',
   }

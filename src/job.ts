@@ -173,21 +173,21 @@ export abstract class Job<Payload = any> {
     this: new (...args: any[]) => T,
     payload: T extends Job<infer P> ? P : never
   ): JobDispatcher<T extends Job<infer P> ? P : never> {
-    const dispatcher = new JobDispatcher<T extends Job<infer P> ? P : never>(
-      (this as any).jobName,
-      payload
-    )
+    const options = (this as any).options || {}
+    const jobName = options.name || this.name
 
-    if ((this as any).options.queue) {
-      dispatcher.toQueue((this as any).options.queue)
+    const dispatcher = new JobDispatcher<T extends Job<infer P> ? P : never>(jobName, payload)
+
+    if (options.queue) {
+      dispatcher.toQueue(options.queue)
     }
 
-    if ((this as any).options.adapter) {
-      dispatcher.with((this as any).options.adapter)
+    if (options.adapter) {
+      dispatcher.with(options.adapter)
     }
 
-    if ((this as any).options.priority !== undefined) {
-      dispatcher.priority((this as any).options.priority)
+    if (options.priority !== undefined) {
+      dispatcher.priority(options.priority)
     }
 
     return dispatcher
@@ -222,7 +222,10 @@ export abstract class Job<Payload = any> {
     this: new (...args: any[]) => T,
     payload: T extends Job<infer P> ? P : never
   ): ScheduleBuilder {
-    return new ScheduleBuilder((this as any).jobName, payload)
+    const options = (this as any).options || {}
+    const jobName = options.name || this.name
+
+    return new ScheduleBuilder(jobName, payload)
   }
 
   /**

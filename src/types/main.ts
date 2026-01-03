@@ -88,6 +88,7 @@ export interface JobData {
  * ```typescript
  * class SendEmailJob extends Job<EmailPayload> {
  *   static options: JobOptions = {
+ *     name: 'SendEmailJob',
  *     queue: 'emails',
  *     maxRetries: 3,
  *     timeout: '30s',
@@ -96,6 +97,15 @@ export interface JobData {
  * ```
  */
 export interface JobOptions {
+  /**
+   * Unique name for this job class.
+   *
+   * Used to identify the job when dispatching and processing.
+   *
+   * @default constructor.name
+   */
+  name?: string
+
   /**
    * Queue name for this job.
    *
