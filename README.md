@@ -56,9 +56,11 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
 }
 ```
 
-> **Note**: The job name defaults to the class name (`SendEmailJob`). You can override it with `name: 'CustomName'` in options if needed.
->
-> **Warning**: If you minify your code in production, class names may be mangled. In that case, always specify `name` explicitly in your job options.
+> [!NOTE]
+> The job name defaults to the class name (`SendEmailJob`). You can override it with `name: 'CustomName'` in options if needed.
+
+> [!WARNING]
+> If you minify your code in production, class names may be mangled. In that case, always specify `name` explicitly in your job options.
 
 ### 2. Configure the Queue Manager
 
