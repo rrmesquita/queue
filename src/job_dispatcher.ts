@@ -44,6 +44,7 @@ export class JobDispatcher<T> {
   #adapter?: string | (() => Adapter)
   #delay?: Duration
   #priority?: number
+  #groupId?: string
 
   /**
    * Create a new job dispatcher.
@@ -122,6 +123,30 @@ export class JobDispatcher<T> {
   }
 
   /**
+   * Assign this job to a group.
+   *
+   * Jobs with the same groupId can be filtered and displayed together
+   * in monitoring UIs. Useful for batch operations like newsletters
+   * or bulk exports.
+   *
+   * @param groupId - Group identifier
+   * @returns This dispatcher for chaining
+   *
+   * @example
+   * ```typescript
+   * // Group newsletter jobs together
+   * await SendEmailJob.dispatch({ to: 'user@example.com' })
+   *   .group('newsletter-jan-2025')
+   *   .run()
+   * ```
+   */
+  group(groupId: string): this {
+    this.#groupId = groupId
+
+    return this
+  }
+
+  /**
    * Use a specific adapter for this job.
    *
    * @param adapter - Adapter name or factory function
@@ -166,6 +191,7 @@ export class JobDispatcher<T> {
       payload: this.#payload,
       attempts: 0,
       priority: this.#priority,
+      groupId: this.#groupId,
     }
 
     if (this.#delay) {

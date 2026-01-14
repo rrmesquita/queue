@@ -222,3 +222,77 @@ test.group('JobDispatcher | DispatchResult', () => {
     assert.property(result, 'jobId')
   })
 })
+
+test.group('JobDispatcher | groupId', () => {
+  test('should dispatch job with groupId', async ({ assert }) => {
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+    }
+
+    await QueueManager.init(localConfig)
+
+    const dispatcher = new JobDispatcher('NewsletterJob', { userId: 1 })
+
+    const { jobId } = await dispatcher.group('newsletter-jan-2025').run()
+
+    assert.isString(jobId)
+
+    const job = await sharedAdapter.pop()
+
+    assert.isNotNull(job)
+    assert.equal(job!.id, jobId)
+    assert.equal(job!.groupId, 'newsletter-jan-2025')
+  })
+
+  test('should dispatch multiple jobs with same groupId', async ({ assert }) => {
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+    }
+
+    await QueueManager.init(localConfig)
+
+    const groupId = 'batch-export-123'
+
+    await new JobDispatcher('ExportJob', { userId: 1 }).group(groupId).run()
+    await new JobDispatcher('ExportJob', { userId: 2 }).group(groupId).run()
+    await new JobDispatcher('ExportJob', { userId: 3 }).group(groupId).run()
+
+    const job1 = await sharedAdapter.pop()
+    const job2 = await sharedAdapter.pop()
+    const job3 = await sharedAdapter.pop()
+
+    assert.equal(job1!.groupId, groupId)
+    assert.equal(job2!.groupId, groupId)
+    assert.equal(job3!.groupId, groupId)
+  })
+
+  test('should work with other options like priority and queue', async ({ assert }) => {
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+    }
+
+    await QueueManager.init(localConfig)
+
+    const { jobId } = await new JobDispatcher('ImportJob', { file: 'data.csv' })
+      .group('import-batch-456')
+      .toQueue('imports')
+      .priority(2)
+      .run()
+
+    const job = await sharedAdapter.popFrom('imports')
+
+    assert.isNotNull(job)
+    assert.equal(job!.id, jobId)
+    assert.equal(job!.groupId, 'import-batch-456')
+    assert.equal(job!.priority, 2)
+  })
+})

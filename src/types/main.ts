@@ -90,6 +90,22 @@ export interface JobData {
    * Number of times this job was recovered from stalled state.
    */
   stalledCount?: number
+
+  /**
+   * Optional group identifier for organizing related jobs.
+   *
+   * Jobs with the same groupId can be filtered and displayed together
+   * in monitoring UIs. Useful for batch operations like newsletters
+   * or bulk exports.
+   *
+   * @example
+   * ```typescript
+   * await SendEmailJob.dispatch({ to: 'user@example.com' })
+   *   .group('newsletter-jan-2025')
+   *   .run()
+   * ```
+   */
+  groupId?: string
 }
 
 /**
