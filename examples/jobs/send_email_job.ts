@@ -8,6 +8,8 @@ interface SendEmailPayload {
 export default class SendEmailJob extends Job<SendEmailPayload> {
   static options: JobOptions = {
     queue: 'email',
+    removeOnComplete: { age: '7d', count: 1000 },
+    removeOnFail: { age: '30d' },
   }
 
   async execute(): Promise<void> {

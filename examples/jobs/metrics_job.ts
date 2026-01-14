@@ -19,6 +19,8 @@ interface MetricsJobPayload {
 export default class MetricsJob extends Job<MetricsJobPayload> {
   static options: JobOptions = {
     queue: 'metrics',
+    removeOnComplete: true,
+    removeOnFail: { count: 100 },
   }
 
   async execute(): Promise<void> {

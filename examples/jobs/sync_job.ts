@@ -9,6 +9,8 @@ interface SyncJobPayload {
 export default class SyncJob extends Job<SyncJobPayload> {
   static options: JobOptions = {
     adapter: 'sync',
+    removeOnComplete: false,
+    removeOnFail: false,
   }
 
   async execute(): Promise<void> {
