@@ -20,6 +20,20 @@ export type { Logger }
 export type Duration = number | string
 
 /**
+ * Retention policy for completed/failed jobs.
+ *
+ * - `true` (default): Remove job immediately
+ * - `false`: Keep job in history indefinitely
+ * - `{ age?, count? }`: Keep with pruning by age and/or count
+ */
+export type JobRetention = boolean | { age?: Duration; count?: number }
+
+/**
+ * Possible statuses for a job in the queue.
+ */
+export type JobStatus = 'pending' | 'active' | 'delayed' | 'completed' | 'failed'
+
+/**
  * Result returned when dispatching a job.
  *
  * @example
@@ -76,6 +90,20 @@ export interface JobData {
    * Number of times this job was recovered from stalled state.
    */
   stalledCount?: number
+}
+
+/**
+ * Record of a job's current state, including history for completed/failed jobs.
+ */
+export interface JobRecord {
+  /** Current status of the job */
+  status: JobStatus
+  /** Original job data */
+  data: JobData
+  /** Timestamp when the job finished (for completed/failed jobs) */
+  finishedAt?: number
+  /** Error message (for failed jobs) */
+  error?: string
 }
 
 /**
@@ -150,6 +178,8 @@ export interface JobOptions {
    * @default true
    */
   failOnTimeout?: boolean
+  removeOnComplete?: JobRetention
+  removeOnFail?: JobRetention
 }
 
 /**
@@ -244,6 +274,7 @@ export interface BackoffConfig {
 export interface QueueConfig {
   adapter?: string
   retry?: any
+  defaultJobOptions?: JobOptions
 }
 
 export interface WorkerConfig {
@@ -416,6 +447,7 @@ export interface QueueManagerConfig {
   default: string
   adapters: Record<string, AdapterFactory>
   retry?: RetryConfig
+  defaultJobOptions?: JobOptions
   queues?: Record<string, QueueConfig>
   worker?: WorkerConfig
   locations?: string[]
