@@ -2,9 +2,17 @@ import { randomUUID } from 'node:crypto'
 import KnexPkg from 'knex'
 import type { Knex } from 'knex'
 import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
-import type { JobData, ScheduleConfig, ScheduleData, ScheduleListOptions } from '../types/main.js'
+import type {
+  JobData,
+  JobRecord,
+  JobRetention,
+  JobStatus,
+  ScheduleConfig,
+  ScheduleData,
+  ScheduleListOptions,
+} from '../types/main.js'
 import { DEFAULT_PRIORITY } from '../constants.js'
-import { calculateScore } from '../utils.js'
+import { calculateScore, resolveRetention } from '../utils.js'
 
 export interface KnexAdapterOptions {
   connection: Knex
@@ -73,15 +81,18 @@ export class KnexAdapter implements Adapter {
       await this.#connection.schema.createTable(this.#jobsTable, (table) => {
         table.string('id', 255).notNullable()
         table.string('queue', 255).notNullable()
-        table.enu('status', ['pending', 'active', 'delayed']).notNullable()
+        table.enu('status', ['pending', 'active', 'delayed', 'completed', 'failed']).notNullable()
         table.text('data').notNullable()
         table.bigint('score').unsigned().nullable()
         table.string('worker_id', 255).nullable()
         table.bigint('acquired_at').unsigned().nullable()
         table.bigint('execute_at').unsigned().nullable()
+        table.bigint('finished_at').unsigned().nullable()
+        table.text('error').nullable()
         table.primary(['id', 'queue'])
         table.index(['queue', 'status', 'score'])
         table.index(['queue', 'status', 'execute_at'])
+        table.index(['queue', 'status', 'finished_at'])
       })
     } catch {
       /**
@@ -223,16 +234,132 @@ export class KnexAdapter implements Adapter {
     })
   }
 
-  async completeJob(jobId: string, queue: string): Promise<void> {
+  async completeJob(jobId: string, queue: string, removeOnComplete?: JobRetention): Promise<void> {
     await this.#ensureTables()
 
-    await this.#connection(this.#jobsTable).where('id', jobId).where('queue', queue).delete()
+    const { keep, maxAge, maxCount } = resolveRetention(removeOnComplete)
+
+    if (!keep) {
+      await this.#connection(this.#jobsTable)
+        .where('id', jobId)
+        .where('queue', queue)
+        .where('status', 'active')
+        .delete()
+      return
+    }
+
+    const now = Date.now()
+
+    const updated = await this.#connection(this.#jobsTable)
+      .where('id', jobId)
+      .where('queue', queue)
+      .where('status', 'active')
+      .update({
+        status: 'completed',
+        worker_id: null,
+        acquired_at: null,
+        finished_at: now,
+      })
+
+    if (!updated) {
+      return
+    }
+
+    await this.#pruneHistory(queue, 'completed', maxAge, maxCount, now)
   }
 
-  async failJob(jobId: string, queue: string, _error?: Error): Promise<void> {
+  async failJob(
+    jobId: string,
+    queue: string,
+    error?: Error,
+    removeOnFail?: JobRetention
+  ): Promise<void> {
     await this.#ensureTables()
 
-    await this.#connection(this.#jobsTable).where('id', jobId).where('queue', queue).delete()
+    const { keep, maxAge, maxCount } = resolveRetention(removeOnFail)
+
+    if (!keep) {
+      await this.#connection(this.#jobsTable)
+        .where('id', jobId)
+        .where('queue', queue)
+        .where('status', 'active')
+        .delete()
+      return
+    }
+
+    const now = Date.now()
+
+    const updated = await this.#connection(this.#jobsTable)
+      .where('id', jobId)
+      .where('queue', queue)
+      .where('status', 'active')
+      .update({
+        status: 'failed',
+        worker_id: null,
+        acquired_at: null,
+        finished_at: now,
+        error: error?.message || null,
+      })
+
+    if (!updated) {
+      return
+    }
+
+    await this.#pruneHistory(queue, 'failed', maxAge, maxCount, now)
+  }
+
+  async getJob(jobId: string, queue: string): Promise<JobRecord | null> {
+    await this.#ensureTables()
+
+    const row = await this.#connection(this.#jobsTable)
+      .where('id', jobId)
+      .where('queue', queue)
+      .first()
+
+    if (!row) {
+      return null
+    }
+
+    const jobData: JobData = JSON.parse(row.data)
+
+    return {
+      status: row.status as JobStatus,
+      data: jobData,
+      finishedAt: row.finished_at ? Number(row.finished_at) : undefined,
+      error: row.error || undefined,
+    }
+  }
+
+  async #pruneHistory(
+    queue: string,
+    status: 'completed' | 'failed',
+    maxAge: number,
+    maxCount: number,
+    now: number
+  ): Promise<void> {
+    if (maxAge > 0) {
+      const cutoff = now - maxAge
+      await this.#connection(this.#jobsTable)
+        .where('queue', queue)
+        .where('status', status)
+        .where('finished_at', '<', cutoff)
+        .delete()
+    }
+
+    if (maxCount > 0) {
+      const toKeep = this.#connection(this.#jobsTable)
+        .where('queue', queue)
+        .where('status', status)
+        .orderBy('finished_at', 'desc')
+        .limit(maxCount)
+        .select('id')
+
+      await this.#connection(this.#jobsTable)
+        .where('queue', queue)
+        .where('status', status)
+        .whereNotIn('id', toKeep)
+        .delete()
+    }
   }
 
   async retryJob(jobId: string, queue: string, retryAt?: Date): Promise<void> {

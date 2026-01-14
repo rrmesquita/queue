@@ -1,15 +1,23 @@
+import { randomUUID } from 'node:crypto'
 import type { Adapter, AcquiredJob } from '../../src/contracts/adapter.js'
 import type {
   JobData,
+  JobRecord,
+  JobRetention,
   ScheduleConfig,
   ScheduleData,
   ScheduleListOptions,
 } from '../../src/types/main.js'
-import { randomUUID } from 'node:crypto'
+import { parse } from '../../src/utils.js'
 
 interface ActiveJob {
   job: JobData
   acquiredAt: number
+}
+
+interface DelayedJob {
+  job: JobData
+  executeAt: number
 }
 
 export function memory() {
@@ -19,6 +27,9 @@ export function memory() {
 export class MemoryAdapter implements Adapter {
   #queues: Map<string, JobData[]> = new Map()
   #activeJobs: Map<string, ActiveJob> = new Map()
+  #delayedJobs: Map<string, Map<string, DelayedJob>> = new Map()
+  #completedJobs: Map<string, JobRecord[]> = new Map()
+  #failedJobs: Map<string, JobRecord[]> = new Map()
   #pendingTimeouts: Set<NodeJS.Timeout> = new Set()
   #schedules: Map<string, ScheduleData> = new Map()
 
@@ -51,8 +62,16 @@ export class MemoryAdapter implements Adapter {
   }
 
   pushLaterOn(queue: string, jobData: JobData, delay: number): Promise<void> {
+    if (!this.#delayedJobs.has(queue)) {
+      this.#delayedJobs.set(queue, new Map())
+    }
+
+    const executeAt = Date.now() + delay
+    this.#delayedJobs.get(queue)!.set(jobData.id, { job: jobData, executeAt })
+
     const timeout = setTimeout(() => {
       this.#pendingTimeouts.delete(timeout)
+      this.#delayedJobs.get(queue)?.delete(jobData.id)
       void this.pushOn(queue, jobData)
     }, delay)
 
@@ -72,7 +91,19 @@ export class MemoryAdapter implements Adapter {
       return null
     }
 
-    const job = jobs.shift()
+    // Find job with highest priority (lowest priority number)
+    let bestIndex = 0
+    let bestPriority = jobs[0].priority ?? 5
+
+    for (let i = 1; i < jobs.length; i++) {
+      const priority = jobs[i].priority ?? 5
+      if (priority < bestPriority) {
+        bestPriority = priority
+        bestIndex = i
+      }
+    }
+
+    const [job] = jobs.splice(bestIndex, 1)
     if (!job) {
       return null
     }
@@ -83,12 +114,35 @@ export class MemoryAdapter implements Adapter {
     return { ...job, acquiredAt }
   }
 
-  async completeJob(jobId: string, _queue: string): Promise<void> {
+  async completeJob(jobId: string, queue: string, removeOnComplete?: JobRetention): Promise<void> {
+    const active = this.#activeJobs.get(jobId)
+    if (!active) return
+
     this.#activeJobs.delete(jobId)
+
+    if (removeOnComplete === undefined || removeOnComplete === true) {
+      return
+    }
+
+    this.#storeHistory(queue, 'completed', active.job, removeOnComplete)
   }
 
-  async failJob(jobId: string, _queue: string, _error?: Error): Promise<void> {
+  async failJob(
+    jobId: string,
+    queue: string,
+    error?: Error,
+    removeOnFail?: JobRetention
+  ): Promise<void> {
+    const active = this.#activeJobs.get(jobId)
+    if (!active) return
+
     this.#activeJobs.delete(jobId)
+
+    if (removeOnFail === undefined || removeOnFail === true) {
+      return
+    }
+
+    this.#storeHistory(queue, 'failed', active.job, removeOnFail, error)
   }
 
   async retryJob(jobId: string, queue: string, retryAt?: Date): Promise<void> {
@@ -151,6 +205,36 @@ export class MemoryAdapter implements Adapter {
     }
 
     return recovered
+  }
+
+  async getJob(jobId: string, queue: string): Promise<JobRecord | null> {
+    const active = this.#activeJobs.get(jobId)
+    if (active) {
+      return { status: 'active', data: active.job }
+    }
+
+    const pendingJobs = this.#queues.get(queue)
+    const pending = pendingJobs?.find((job) => job.id === jobId)
+    if (pending) {
+      return { status: 'pending', data: pending }
+    }
+
+    const delayed = this.#delayedJobs.get(queue)?.get(jobId)
+    if (delayed) {
+      return { status: 'delayed', data: delayed.job }
+    }
+
+    const completed = this.#findHistory(this.#completedJobs, queue, jobId)
+    if (completed) {
+      return completed
+    }
+
+    const failed = this.#findHistory(this.#failedJobs, queue, jobId)
+    if (failed) {
+      return failed
+    }
+
+    return null
   }
 
   destroy(): Promise<void> {
@@ -263,5 +347,59 @@ export class MemoryAdapter implements Adapter {
     schedule.runCount = newRunCount
 
     return claimedSchedule
+  }
+
+  #storeHistory(
+    queue: string,
+    status: 'completed' | 'failed',
+    job: JobData,
+    retention: JobRetention,
+    error?: Error
+  ) {
+    const record: JobRecord = {
+      status,
+      data: job,
+      finishedAt: Date.now(),
+      error: error?.message,
+    }
+
+    const store = status === 'completed' ? this.#completedJobs : this.#failedJobs
+
+    if (!store.has(queue)) {
+      store.set(queue, [])
+    }
+
+    const records = store.get(queue)!
+    records.push(record)
+
+    if (retention && retention !== true) {
+      this.#applyRetention(records, retention)
+    }
+  }
+
+  #applyRetention(records: JobRecord[], retention: JobRetention) {
+    if (retention === false || retention === true) {
+      return
+    }
+
+    if (retention.age !== undefined) {
+      const maxAgeMs = parse(retention.age)
+      if (maxAgeMs > 0) {
+        const cutoff = Date.now() - maxAgeMs
+        const filtered = records.filter((record) => (record.finishedAt ?? 0) >= cutoff)
+        records.splice(0, records.length, ...filtered)
+      }
+    }
+
+    if (retention.count !== undefined && retention.count > 0 && records.length > retention.count) {
+      records.splice(0, records.length - retention.count)
+    }
+  }
+
+  #findHistory(store: Map<string, JobRecord[]>, queue: string, jobId: string): JobRecord | null {
+    const records = store.get(queue)
+    if (!records) return null
+
+    return records.find((record) => record.data.id === jobId) ?? null
   }
 }

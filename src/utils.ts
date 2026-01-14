@@ -1,7 +1,29 @@
 import { parse as parseDuration } from '@lukeed/ms'
-import type { Duration } from './types/main.js'
+import type { Duration, JobRetention } from './types/main.js'
 import * as errors from './exceptions.js'
 import { PRIORITY_SCORE_MULTIPLIER } from './constants.js'
+
+export interface ResolvedRetention {
+  keep: boolean
+  maxAge: number
+  maxCount: number
+}
+
+export function resolveRetention(retention?: JobRetention): ResolvedRetention {
+  if (retention === undefined || retention === true) {
+    return { keep: false, maxAge: 0, maxCount: 0 }
+  }
+
+  if (retention === false) {
+    return { keep: true, maxAge: 0, maxCount: 0 }
+  }
+
+  return {
+    keep: true,
+    maxAge: retention.age ? parse(retention.age) : 0,
+    maxCount: retention.count ?? 0,
+  }
+}
 
 export function parse(duration: Duration): number {
   if (typeof duration === 'number') {

@@ -4,6 +4,7 @@ import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
 import type {
   JobContext,
   JobData,
+  JobRetention,
   ScheduleConfig,
   ScheduleData,
   ScheduleListOptions,
@@ -60,11 +61,16 @@ export class SyncAdapter implements Adapter {
     throw new Error('SyncAdapter does not support pop - jobs are executed immediately on push')
   }
 
-  completeJob(_jobId: string, _queue: string): Promise<void> {
+  completeJob(_jobId: string, _queue: string, _removeOnComplete?: JobRetention): Promise<void> {
     return Promise.resolve()
   }
 
-  failJob(_jobId: string, _queue: string, _error?: Error): Promise<void> {
+  failJob(
+    _jobId: string,
+    _queue: string,
+    _error?: Error,
+    _removeOnFail?: JobRetention
+  ): Promise<void> {
     return Promise.resolve()
   }
 
@@ -79,6 +85,10 @@ export class SyncAdapter implements Adapter {
   ): Promise<number> {
     // SyncAdapter has no stalled jobs - jobs are executed immediately
     return Promise.resolve(0)
+  }
+
+  getJob(_jobId: string, _queue: string): Promise<null> {
+    return Promise.resolve(null)
   }
 
   destroy(): Promise<void> {

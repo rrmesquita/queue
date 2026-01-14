@@ -23,7 +23,8 @@
     "lint": "eslint .",
     "prepublishOnly": "yarn build",
     "release": "yarn dlx release-it",
-    "test": "c8 node --import=@poppinss/ts-exec --enable-source-maps bin/test.ts",
+    "test": "node --import=@poppinss/ts-exec --enable-source-maps bin/test.ts --reporters=dot",
+    "test:coverage": "c8 yarn test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

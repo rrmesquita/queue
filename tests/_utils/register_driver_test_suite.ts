@@ -85,6 +85,164 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.isNull(nextJob)
   })
 
+  test('getJob should return status pending for a queued job', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-pending',
+      name: 'TestJob',
+      payload: { foo: 'bar' },
+      attempts: 0,
+    })
+
+    const record = await adapter.getJob('job-pending', 'test-queue')
+
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'pending')
+    assert.equal(record!.data.id, 'job-pending')
+    assert.deepEqual(record!.data.payload, { foo: 'bar' })
+  })
+
+  test('getJob should return status delayed for a delayed job', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushLaterOn(
+      'test-queue',
+      {
+        id: 'job-delayed',
+        name: 'TestJob',
+        payload: {},
+        attempts: 0,
+      },
+      60000
+    ) // 1 minute delay
+
+    const record = await adapter.getJob('job-delayed', 'test-queue')
+
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'delayed')
+    assert.equal(record!.data.id, 'job-delayed')
+  })
+
+  test('getJob should return status active for a job being processed', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-active',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    await adapter.popFrom('test-queue')
+
+    const record = await adapter.getJob('job-active', 'test-queue')
+
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'active')
+    assert.equal(record!.data.id, 'job-active')
+  })
+
+  test('getJob should return null for non-existent job', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    const record = await adapter.getJob('non-existent', 'test-queue')
+
+    assert.isNull(record)
+  })
+
+  test('getJob should return finishedAt for completed job', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-finished',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job = await adapter.popFrom('test-queue')
+    const beforeComplete = Date.now()
+    await adapter.completeJob(job!.id, 'test-queue', false)
+    const afterComplete = Date.now()
+
+    const record = await adapter.getJob(job!.id, 'test-queue')
+
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'completed')
+    assert.isNumber(record!.finishedAt)
+    assert.isAtLeast(record!.finishedAt!, beforeComplete)
+    assert.isAtMost(record!.finishedAt!, afterComplete)
+  })
+
+  test('failJob should store error message', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-error',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job = await adapter.popFrom('test-queue')
+    await adapter.failJob(job!.id, 'test-queue', new Error('Something went wrong'), false)
+
+    const record = await adapter.getJob(job!.id, 'test-queue')
+
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'failed')
+    assert.equal(record!.error, 'Something went wrong')
+    assert.isNumber(record!.finishedAt)
+  })
+
+  test('completeJob should keep job when removeOnComplete is false', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-keep',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job = await adapter.popFrom('test-queue')
+    assert.isNotNull(job)
+
+    await adapter.completeJob(job!.id, 'test-queue', false)
+
+    const record = await adapter.getJob(job!.id, 'test-queue')
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'completed')
+  })
+
+  test('completeJob should remove job when removeOnComplete is true', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-drop',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job = await adapter.popFrom('test-queue')
+    assert.isNotNull(job)
+
+    await adapter.completeJob(job!.id, 'test-queue', true)
+
+    const record = await adapter.getJob(job!.id, 'test-queue')
+    assert.isNull(record)
+  })
+
   test('retryJob should put job back in queue with incremented attempts', async ({ assert }) => {
     const adapter = await options.createAdapter()
     adapter.setWorkerId('worker-1')
@@ -151,6 +309,97 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
 
     const nextJob = await adapter.popFrom('test-queue')
     assert.isNull(nextJob)
+  })
+
+  test('failJob should keep job when removeOnFail is false', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-fail-keep',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job = await adapter.popFrom('test-queue')
+    assert.isNotNull(job)
+
+    await adapter.failJob(job!.id, 'test-queue', new Error('Test error'), false)
+
+    const record = await adapter.getJob(job!.id, 'test-queue')
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'failed')
+  })
+
+  test('retention count should prune completed jobs', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-1',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-2',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job1 = await adapter.popFrom('test-queue')
+    const job2 = await adapter.popFrom('test-queue')
+    assert.isNotNull(job1)
+    assert.isNotNull(job2)
+
+    await adapter.completeJob(job1!.id, 'test-queue', { count: 1 })
+    await adapter.completeJob(job2!.id, 'test-queue', { count: 1 })
+
+    const record1 = await adapter.getJob(job1!.id, 'test-queue')
+    const record2 = await adapter.getJob(job2!.id, 'test-queue')
+
+    assert.isNull(record1)
+    assert.isNotNull(record2)
+  })
+
+  test('retention age should prune completed jobs', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-age-1',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-age-2',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job1 = await adapter.popFrom('test-queue')
+    assert.isNotNull(job1)
+
+    await adapter.completeJob(job1!.id, 'test-queue', { age: '1ms' })
+
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    const job2 = await adapter.popFrom('test-queue')
+    assert.isNotNull(job2)
+
+    await adapter.completeJob(job2!.id, 'test-queue', { age: '1ms' })
+
+    const record1 = await adapter.getJob(job1!.id, 'test-queue')
+    const record2 = await adapter.getJob(job2!.id, 'test-queue')
+
+    assert.isNull(record1)
+    assert.isNotNull(record2)
   })
 
   test('multiple jobs should be processed in order', async ({ assert }) => {
@@ -341,6 +590,418 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.isNotNull(job1)
     assert.isNotNull(job2)
     assert.isNull(job3)
+  })
+
+  test('completeJob with undefined retention should remove job (default behavior)', async ({
+    assert,
+  }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-default',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job = await adapter.popFrom('test-queue')
+    await adapter.completeJob(job!.id, 'test-queue')
+
+    const record = await adapter.getJob(job!.id, 'test-queue')
+    assert.isNull(record)
+  })
+
+  test('failJob with undefined retention should remove job (default behavior)', async ({
+    assert,
+  }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-fail-default',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job = await adapter.popFrom('test-queue')
+    await adapter.failJob(job!.id, 'test-queue', new Error('fail'))
+
+    const record = await adapter.getJob(job!.id, 'test-queue')
+    assert.isNull(record)
+  })
+
+  test('retention with both age and count should apply both', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    // Create 3 jobs
+    for (let i = 1; i <= 3; i++) {
+      await adapter.pushOn('test-queue', {
+        id: `job-combo-${i}`,
+        name: 'TestJob',
+        payload: {},
+        attempts: 0,
+      })
+    }
+
+    // Complete all with count: 2
+    for (let i = 1; i <= 3; i++) {
+      const job = await adapter.popFrom('test-queue')
+      await adapter.completeJob(job!.id, 'test-queue', { count: 2, age: '1h' })
+    }
+
+    // Only last 2 should remain (count: 2)
+    const record1 = await adapter.getJob('job-combo-1', 'test-queue')
+    const record2 = await adapter.getJob('job-combo-2', 'test-queue')
+    const record3 = await adapter.getJob('job-combo-3', 'test-queue')
+
+    assert.isNull(record1)
+    assert.isNotNull(record2)
+    assert.isNotNull(record3)
+  })
+
+  test('failJob retention count should prune failed jobs', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-fail-1',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+    await adapter.pushOn('test-queue', {
+      id: 'job-fail-2',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job1 = await adapter.popFrom('test-queue')
+    const job2 = await adapter.popFrom('test-queue')
+
+    await adapter.failJob(job1!.id, 'test-queue', new Error('error 1'), { count: 1 })
+    await adapter.failJob(job2!.id, 'test-queue', new Error('error 2'), { count: 1 })
+
+    const record1 = await adapter.getJob(job1!.id, 'test-queue')
+    const record2 = await adapter.getJob(job2!.id, 'test-queue')
+
+    assert.isNull(record1)
+    assert.isNotNull(record2)
+    assert.equal(record2!.status, 'failed')
+  })
+
+  test('completeJob on non-active job should be no-op', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-pending-complete',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    // Try to complete without popping (job is still pending)
+    await adapter.completeJob('job-pending-complete', 'test-queue', false)
+
+    // Job should still be pending
+    const record = await adapter.getJob('job-pending-complete', 'test-queue')
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'pending')
+  })
+
+  test('completeJob on non-active job should not prune history', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-history-1',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+    await adapter.pushOn('test-queue', {
+      id: 'job-history-2',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job1 = await adapter.popFrom('test-queue')
+    const job2 = await adapter.popFrom('test-queue')
+
+    await adapter.completeJob(job1!.id, 'test-queue', false)
+    await adapter.completeJob(job2!.id, 'test-queue', false)
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-history-pending',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    await adapter.completeJob('job-history-pending', 'test-queue', { count: 1 })
+
+    const record1 = await adapter.getJob('job-history-1', 'test-queue')
+    const record2 = await adapter.getJob('job-history-2', 'test-queue')
+
+    assert.isNotNull(record1)
+    assert.isNotNull(record2)
+    assert.equal(record1!.status, 'completed')
+    assert.equal(record2!.status, 'completed')
+  })
+
+  test('completeJob on pending job with default retention should keep job', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-pending-default',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    await adapter.completeJob('job-pending-default', 'test-queue')
+
+    const record = await adapter.getJob('job-pending-default', 'test-queue')
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'pending')
+  })
+
+  test('failJob on non-active job should be no-op', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-pending-fail',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    // Try to fail without popping (job is still pending)
+    await adapter.failJob('job-pending-fail', 'test-queue', new Error('fail'), false)
+
+    // Job should still be pending
+    const record = await adapter.getJob('job-pending-fail', 'test-queue')
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'pending')
+  })
+
+  test('double completeJob should not cause errors', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-double-complete',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const job = await adapter.popFrom('test-queue')
+    await adapter.completeJob(job!.id, 'test-queue', false)
+
+    // Second complete should not throw
+    await adapter.completeJob(job!.id, 'test-queue', false)
+
+    const record = await adapter.getJob(job!.id, 'test-queue')
+    assert.isNotNull(record)
+    assert.equal(record!.status, 'completed')
+  })
+
+  test('jobs in different queues should be isolated', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('queue-a', {
+      id: 'job-a',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+    await adapter.pushOn('queue-b', {
+      id: 'job-b',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    const jobA = await adapter.popFrom('queue-a')
+    const jobB = await adapter.popFrom('queue-b')
+
+    assert.isNotNull(jobA)
+    assert.isNotNull(jobB)
+    assert.equal(jobA!.id, 'job-a')
+    assert.equal(jobB!.id, 'job-b')
+
+    // Queue A should be empty now
+    const nextA = await adapter.popFrom('queue-a')
+    assert.isNull(nextA)
+  })
+
+  test('pruning should only affect its own queue', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    // Add jobs to two queues
+    await adapter.pushOn('queue-prune-a', {
+      id: 'job-prune-a',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+    await adapter.pushOn('queue-prune-b', {
+      id: 'job-prune-b',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    // Complete both with count: 0 (would prune if in same queue)
+    const jobA = await adapter.popFrom('queue-prune-a')
+    const jobB = await adapter.popFrom('queue-prune-b')
+
+    await adapter.completeJob(jobA!.id, 'queue-prune-a', { count: 1 })
+    await adapter.completeJob(jobB!.id, 'queue-prune-b', { count: 1 })
+
+    // Both should still exist (different queues)
+    const recordA = await adapter.getJob(jobA!.id, 'queue-prune-a')
+    const recordB = await adapter.getJob(jobB!.id, 'queue-prune-b')
+
+    assert.isNotNull(recordA)
+    assert.isNotNull(recordB)
+  })
+
+  test('jobs with higher priority should be processed first', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    // Push in reverse priority order
+    await adapter.pushOn('test-queue', {
+      id: 'job-low',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      priority: 10, // low priority (higher number = lower priority)
+    })
+    await adapter.pushOn('test-queue', {
+      id: 'job-high',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      priority: 1, // high priority
+    })
+    await adapter.pushOn('test-queue', {
+      id: 'job-medium',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+      priority: 5, // medium priority
+    })
+
+    const first = await adapter.popFrom('test-queue')
+    const second = await adapter.popFrom('test-queue')
+    const third = await adapter.popFrom('test-queue')
+
+    assert.equal(first!.id, 'job-high')
+    assert.equal(second!.id, 'job-medium')
+    assert.equal(third!.id, 'job-low')
+  })
+
+  test('job lifecycle: pending -> active -> completed', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-lifecycle',
+      name: 'TestJob',
+      payload: { step: 1 },
+      attempts: 0,
+    })
+
+    // Check pending
+    let record = await adapter.getJob('job-lifecycle', 'test-queue')
+    assert.equal(record!.status, 'pending')
+
+    // Pop -> active
+    const job = await adapter.popFrom('test-queue')
+    record = await adapter.getJob('job-lifecycle', 'test-queue')
+    assert.equal(record!.status, 'active')
+
+    // Complete
+    await adapter.completeJob(job!.id, 'test-queue', false)
+    record = await adapter.getJob('job-lifecycle', 'test-queue')
+    assert.equal(record!.status, 'completed')
+    assert.isNumber(record!.finishedAt)
+  })
+
+  test('job lifecycle: pending -> active -> retry -> pending -> active -> failed', async ({
+    assert,
+  }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('test-queue', {
+      id: 'job-retry-lifecycle',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    // First attempt
+    const job1 = await adapter.popFrom('test-queue')
+    assert.equal(job1!.attempts, 0)
+
+    // Retry
+    await adapter.retryJob(job1!.id, 'test-queue')
+
+    // Check it's back to pending
+    let record = await adapter.getJob('job-retry-lifecycle', 'test-queue')
+    assert.equal(record!.status, 'pending')
+
+    // Second attempt
+    const job2 = await adapter.popFrom('test-queue')
+    assert.equal(job2!.attempts, 1)
+
+    // Fail
+    await adapter.failJob(job2!.id, 'test-queue', new Error('max retries'), false)
+
+    record = await adapter.getJob('job-retry-lifecycle', 'test-queue')
+    assert.equal(record!.status, 'failed')
+    assert.equal(record!.error, 'max retries')
+  })
+
+  test('delayed job becomes available after delay', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushLaterOn(
+      'test-queue',
+      {
+        id: 'job-short-delay',
+        name: 'TestJob',
+        payload: {},
+        attempts: 0,
+      },
+      10
+    ) // 10ms delay
+
+    // Should be delayed initially
+    let record = await adapter.getJob('job-short-delay', 'test-queue')
+    assert.equal(record!.status, 'delayed')
+
+    // Wait for delay
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    // Pop should now work (triggers delayed job processing)
+    const job = await adapter.popFrom('test-queue')
+    assert.isNotNull(job)
+    assert.equal(job!.id, 'job-short-delay')
   })
 
   // Concurrent tests only run for adapters that support multi-instance concurrency

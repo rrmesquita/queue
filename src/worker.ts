@@ -314,10 +314,11 @@ export class Worker {
     debug('worker %s: executing job %s (%s)', this.#id, job.id, job.name)
 
     const { instance, options, timeout, context, payload } = await this.#initJob(job, queue)
+    const retention = QueueManager.getMergedJobOptions(queue, options)
 
     try {
       await this.#executeWithTimeout(instance, payload, context, timeout)
-      await this.#adapter.completeJob(job.id, queue)
+      await this.#adapter.completeJob(job.id, queue, retention.removeOnComplete)
 
       const duration = (performance.now() - startTime).toFixed(2)
       debug('worker %s: successfully executed job %s in %dms', this.#id, job.id, duration)
@@ -326,7 +327,7 @@ export class Worker {
 
       if (isTimeout && options.failOnTimeout) {
         debug('worker %s: job %s timed out and failOnTimeout is set', this.#id, job.id)
-        await this.#adapter.failJob(job.id, queue, e as Error)
+        await this.#adapter.failJob(job.id, queue, e as Error, retention.removeOnFail)
         await instance.failed?.(e as Error)
         return
       }
@@ -335,7 +336,7 @@ export class Worker {
 
       if (typeof mergedConfig.maxRetries === 'undefined' || mergedConfig.maxRetries <= 0) {
         debug('worker %s: job %s has no retries configured, marking as failed', this.#id, job.id)
-        await this.#adapter.failJob(job.id, queue, e as Error)
+        await this.#adapter.failJob(job.id, queue, e as Error, retention.removeOnFail)
         await instance.failed?.(e as Error)
         return
       }
@@ -347,7 +348,7 @@ export class Worker {
           job.id,
           mergedConfig.maxRetries
         )
-        await this.#adapter.failJob(job.id, queue, e as Error)
+        await this.#adapter.failJob(job.id, queue, e as Error, retention.removeOnFail)
         const exception = new errors.E_JOB_MAX_ATTEMPTS_REACHED([job.name])
         await instance.failed?.(exception)
 
@@ -399,7 +400,8 @@ export class Worker {
       return { instance, options, timeout, context, payload: job.payload }
     } catch (error) {
       debug('worker %s: failed to initialize job %s (%s)', this.#id, job.id, job.name)
-      await this.#adapter.failJob(job.id, queue, error as Error)
+      const retention = QueueManager.getMergedJobOptions(queue)
+      await this.#adapter.failJob(job.id, queue, error as Error, retention.removeOnFail)
       throw error
     }
   }

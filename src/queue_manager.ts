@@ -6,6 +6,7 @@ import type { Adapter } from './contracts/adapter.js'
 import type {
   AdapterFactory,
   JobFactory,
+  JobOptions,
   QueueConfig,
   QueueManagerConfig,
   RetryConfig,
@@ -48,6 +49,7 @@ class QueueManagerSingleton {
   #adapters: Record<string, AdapterFactory> = {}
   #adapterInstances: Map<string, Adapter> = new Map()
   #globalRetryConfig?: RetryConfig
+  #globalJobOptions?: JobOptions
   #queueConfigs: Map<string, QueueConfig> = new Map()
   #logger: Logger = consoleLogger
   #jobFactory?: JobFactory
@@ -86,6 +88,7 @@ class QueueManagerSingleton {
     this.#defaultAdapter = config.default
     this.#adapters = config.adapters
     this.#globalRetryConfig = config.retry
+    this.#globalJobOptions = config.defaultJobOptions
     this.#logger = config.logger ?? consoleLogger
     this.#jobFactory = config.jobFactory
 
@@ -205,6 +208,25 @@ class QueueManagerSingleton {
    */
   getJobFactory(): JobFactory | undefined {
     return this.#jobFactory
+  }
+
+  /**
+   * Get the merged job options for a job (priority: job > queue > global).
+   */
+  getMergedJobOptions(queue: string, jobOptions?: JobOptions): JobOptions {
+    const queueConfig = this.#queueConfigs.get(queue)
+    const queueJobOptions = queueConfig?.defaultJobOptions
+
+    return {
+      removeOnComplete:
+        jobOptions?.removeOnComplete ??
+        queueJobOptions?.removeOnComplete ??
+        this.#globalJobOptions?.removeOnComplete,
+      removeOnFail:
+        jobOptions?.removeOnFail ??
+        queueJobOptions?.removeOnFail ??
+        this.#globalJobOptions?.removeOnFail,
+    }
   }
 
   #validateConfig(config: QueueManagerConfig): void {

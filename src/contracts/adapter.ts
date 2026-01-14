@@ -1,4 +1,11 @@
-import type { JobData, ScheduleConfig, ScheduleData, ScheduleListOptions } from '../types/main.js'
+import type {
+  JobData,
+  JobRecord,
+  JobRetention,
+  ScheduleConfig,
+  ScheduleData,
+  ScheduleListOptions,
+} from '../types/main.js'
 
 /**
  * A job that has been acquired by a worker for processing.
@@ -76,8 +83,9 @@ export interface Adapter {
    *
    * @param jobId - The job ID to complete
    * @param queue - The queue the job belongs to
+   * @param removeOnComplete - Optional retention policy for completed jobs
    */
-  completeJob(jobId: string, queue: string): Promise<void>
+  completeJob(jobId: string, queue: string, removeOnComplete?: JobRetention): Promise<void>
 
   /**
    * Mark a job as failed permanently and remove it from the queue.
@@ -85,8 +93,9 @@ export interface Adapter {
    * @param jobId - The job ID to fail
    * @param queue - The queue the job belongs to
    * @param error - Optional error that caused the failure
+   * @param removeOnFail - Optional retention policy for failed jobs
    */
-  failJob(jobId: string, queue: string, error?: Error): Promise<void>
+  failJob(jobId: string, queue: string, error?: Error, removeOnFail?: JobRetention): Promise<void>
 
   /**
    * Retry a job by moving it back to pending with incremented attempts.
@@ -96,6 +105,15 @@ export interface Adapter {
    * @param retryAt - Optional future date to delay the retry
    */
   retryJob(jobId: string, queue: string, retryAt?: Date): Promise<void>
+
+  /**
+   * Get a job record by id.
+   *
+   * @param jobId - The job ID to retrieve
+   * @param queue - The queue the job belongs to
+   * @returns The job record, or null if not found
+   */
+  getJob(jobId: string, queue: string): Promise<JobRecord | null>
 
   /**
    * Push a job to the default queue for immediate processing.

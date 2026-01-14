@@ -3,12 +3,54 @@ import { Redis, type RedisOptions } from 'ioredis'
 import { DEFAULT_PRIORITY } from '../constants.js'
 import { calculateScore } from '../utils.js'
 import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
-import type { JobData, ScheduleConfig, ScheduleData, ScheduleListOptions } from '../types/main.js'
+import type {
+  JobData,
+  JobRecord,
+  JobRetention,
+  ScheduleConfig,
+  ScheduleData,
+  ScheduleListOptions,
+} from '../types/main.js'
+import { resolveRetention } from '../utils.js'
 
 const redisKey = 'jobs'
 const schedulesKey = 'schedules'
 const schedulesIndexKey = 'schedules::index'
 type RedisConfig = Redis | RedisOptions
+
+/**
+ * Lua script for pushing a job to the queue.
+ * Stores job data in the central hash and adds jobId to pending ZSET.
+ */
+const PUSH_JOB_SCRIPT = `
+  local data_key = KEYS[1]
+  local pending_key = KEYS[2]
+  local job_id = ARGV[1]
+  local job_data = ARGV[2]
+  local score = tonumber(ARGV[3])
+
+  redis.call('HSET', data_key, job_id, job_data)
+  redis.call('ZADD', pending_key, score, job_id)
+
+  return 1
+`
+
+/**
+ * Lua script for pushing a delayed job.
+ * Stores job data in the central hash and adds jobId to delayed ZSET.
+ */
+const PUSH_DELAYED_JOB_SCRIPT = `
+  local data_key = KEYS[1]
+  local delayed_key = KEYS[2]
+  local job_id = ARGV[1]
+  local job_data = ARGV[2]
+  local execute_at = tonumber(ARGV[3])
+
+  redis.call('HSET', data_key, job_id, job_data)
+  redis.call('ZADD', delayed_key, execute_at, job_id)
+
+  return 1
+`
 
 /**
  * Lua script for atomic job acquisition.
@@ -18,25 +60,26 @@ type RedisConfig = Redis | RedisOptions
  * 4. Return job data
  */
 const ACQUIRE_JOB_SCRIPT = `
-  local pending_key = KEYS[1]
-  local active_key = KEYS[2]
-  local delayed_key = KEYS[3]
+  local data_key = KEYS[1]
+  local pending_key = KEYS[2]
+  local active_key = KEYS[3]
+  local delayed_key = KEYS[4]
   local worker_id = ARGV[1]
-  local now = ARGV[2]
+  local now = tonumber(ARGV[2])
 
-  -- First, process delayed jobs
-  local ready_jobs = redis.call('ZRANGEBYSCORE', delayed_key, 0, now)
-  if #ready_jobs > 0 then
-    for i = 1, #ready_jobs do
-      local job_data = ready_jobs[i]
-      local job = cjson.decode(job_data)
-      -- Score = priority * 1e13 + timestamp
-      -- Lower score = higher priority, FIFO within same priority
-      local priority = job.priority or 5
-      local timestamp = tonumber(now)
-      local score = priority * 10000000000000 + timestamp
-      redis.call('ZADD', pending_key, score, job_data)
-      redis.call('ZREM', delayed_key, job_data)
+  -- Process delayed jobs: move ready jobs to pending
+  local ready_job_ids = redis.call('ZRANGEBYSCORE', delayed_key, 0, now)
+  if #ready_job_ids > 0 then
+    for i = 1, #ready_job_ids do
+      local job_id = ready_job_ids[i]
+      local job_data = redis.call('HGET', data_key, job_id)
+      if job_data then
+        local job = cjson.decode(job_data)
+        local priority = job.priority or 5
+        local score = priority * 10000000000000 + now
+        redis.call('ZADD', pending_key, score, job_id)
+        redis.call('ZREM', delayed_key, job_id)
+      end
     end
   end
 
@@ -46,87 +89,148 @@ const ACQUIRE_JOB_SCRIPT = `
     return nil
   end
 
-  local job_data = result[1]
-  local job = cjson.decode(job_data)
+  local job_id = result[1]
+  local job_data = redis.call('HGET', data_key, job_id)
+  if not job_data then
+    return nil
+  end
 
-  -- Store in active hash: jobId -> {workerId, acquiredAt, data}
+  -- Store in active hash (without data, it's in data_key)
   local active_data = cjson.encode({
     workerId = worker_id,
-    acquiredAt = tonumber(now),
-    data = job
+    acquiredAt = now
   })
-  redis.call('HSET', active_key, job.id, active_data)
+  redis.call('HSET', active_key, job_id, active_data)
 
   -- Return job with acquiredAt
-  job.acquiredAt = tonumber(now)
+  local job = cjson.decode(job_data)
+  job.acquiredAt = now
   return cjson.encode(job)
 `
 
 /**
- * Lua script for completing a job.
- * Removes the job from active hash.
+ * Lua script for removing a job completely (no history).
  */
-const COMPLETE_JOB_SCRIPT = `
-  local active_key = KEYS[1]
+const REMOVE_JOB_SCRIPT = `
+  local data_key = KEYS[1]
+  local active_key = KEYS[2]
   local job_id = ARGV[1]
 
+  if redis.call('HEXISTS', active_key, job_id) == 0 then
+    return 0
+  end
+
   redis.call('HDEL', active_key, job_id)
+  redis.call('HDEL', data_key, job_id)
+
   return 1
 `
 
 /**
- * Lua script for failing a job permanently.
- * Removes from active hash.
+ * Lua script for finalizing a job in history.
+ * Removes from active, stores finalization info, and prunes old records.
  */
-const FAIL_JOB_SCRIPT = `
-  local active_key = KEYS[1]
+const FINALIZE_JOB_SCRIPT = `
+  local data_key = KEYS[1]
+  local active_key = KEYS[2]
+  local history_key = KEYS[3]
+  local index_key = KEYS[4]
   local job_id = ARGV[1]
+  local now = tonumber(ARGV[2])
+  local max_age = tonumber(ARGV[3])
+  local max_count = tonumber(ARGV[4])
+  local error_message = ARGV[5]
 
+  -- Verify job is active
+  if redis.call('HEXISTS', active_key, job_id) == 0 then
+    return 0
+  end
+
+  -- Remove from active
   redis.call('HDEL', active_key, job_id)
+
+  -- Store finalization info (data stays in data_key)
+  local record = {
+    finishedAt = now
+  }
+  if error_message and error_message ~= '' then
+    record.error = error_message
+  end
+  redis.call('HSET', history_key, job_id, cjson.encode(record))
+  redis.call('ZADD', index_key, now, job_id)
+
+  -- Prune by age
+  if max_age and max_age > 0 then
+    local cutoff = now - max_age
+    local expired = redis.call('ZRANGEBYSCORE', index_key, 0, cutoff)
+    if #expired > 0 then
+      redis.call('ZREM', index_key, unpack(expired))
+      redis.call('HDEL', history_key, unpack(expired))
+      redis.call('HDEL', data_key, unpack(expired))
+    end
+  end
+
+  -- Prune by count
+  if max_count and max_count > 0 then
+    local size = tonumber(redis.call('ZCARD', index_key))
+    if size > max_count then
+      local excess = size - max_count
+      local stale = redis.call('ZRANGE', index_key, 0, excess - 1)
+      if #stale > 0 then
+        redis.call('ZREM', index_key, unpack(stale))
+        redis.call('HDEL', history_key, unpack(stale))
+        redis.call('HDEL', data_key, unpack(stale))
+      end
+    end
+  end
+
   return 1
 `
 
 /**
  * Lua script for retrying a job.
- * 1. Get job from active hash
+ * 1. Verify job is active
  * 2. Remove from active hash
- * 3. Increment attempts
+ * 3. Increment attempts in data
  * 4. Add back to pending (or delayed if retryAt is set)
  */
 const RETRY_JOB_SCRIPT = `
-  local active_key = KEYS[1]
-  local pending_key = KEYS[2]
-  local delayed_key = KEYS[3]
+  local data_key = KEYS[1]
+  local active_key = KEYS[2]
+  local pending_key = KEYS[3]
+  local delayed_key = KEYS[4]
   local job_id = ARGV[1]
   local retry_at = tonumber(ARGV[2])
   local now = tonumber(ARGV[3])
 
-  -- Get job from active hash
-  local active_data = redis.call('HGET', active_key, job_id)
-  if not active_data then
+  -- Verify job is active
+  if redis.call('HEXISTS', active_key, job_id) == 0 then
     return 0
   end
 
-  local active = cjson.decode(active_data)
-  local job = active.data
+  -- Get job data
+  local job_data = redis.call('HGET', data_key, job_id)
+  if not job_data then
+    return 0
+  end
 
   -- Remove from active
   redis.call('HDEL', active_key, job_id)
 
-  -- Increment attempts
+  -- Increment attempts and update data
+  local job = cjson.decode(job_data)
   job.attempts = (job.attempts or 0) + 1
-
-  local job_data = cjson.encode(job)
+  redis.call('HSET', data_key, job_id, cjson.encode(job))
 
   -- Add back to pending or delayed
   if retry_at and retry_at > now then
-    redis.call('ZADD', delayed_key, retry_at, job_data)
+    redis.call('ZADD', delayed_key, retry_at, job_id)
   else
     -- Score = priority * 1e13 + timestamp
     -- Lower score = higher priority, FIFO within same priority
     local priority = job.priority or 5
     local score = priority * 10000000000000 + now
-    redis.call('ZADD', pending_key, score, job_data)
+    redis.call('ZADD', pending_key, score, job_id)
   end
 
   return 1
@@ -140,8 +244,9 @@ const RETRY_JOB_SCRIPT = `
  * Returns the number of recovered jobs (not including failed ones).
  */
 const RECOVER_STALLED_JOBS_SCRIPT = `
-  local active_key = KEYS[1]
-  local pending_key = KEYS[2]
+  local data_key = KEYS[1]
+  local active_key = KEYS[2]
+  local pending_key = KEYS[3]
   local now = tonumber(ARGV[1])
   local stalled_threshold = tonumber(ARGV[2])
   local max_stalled_count = tonumber(ARGV[3])
@@ -160,30 +265,90 @@ const RECOVER_STALLED_JOBS_SCRIPT = `
 
     -- Check if job is stalled
     if active.acquiredAt < stalled_cutoff then
-      local job = active.data
-      local current_stalled_count = job.stalledCount or 0
+      local job_data = redis.call('HGET', data_key, job_id)
+      if job_data then
+        local job = cjson.decode(job_data)
+        local current_stalled_count = job.stalledCount or 0
 
-      -- Remove from active hash
-      redis.call('HDEL', active_key, job_id)
+        -- Remove from active hash
+        redis.call('HDEL', active_key, job_id)
 
-      -- Check if job has exceeded max stalled count
-      if current_stalled_count >= max_stalled_count then
-        -- Job failed permanently, just remove (already done above)
-      else
-        -- Recover: increment stalledCount and put back in pending
-        job.stalledCount = current_stalled_count + 1
-        local job_data = cjson.encode(job)
-        -- Score = priority * 1e13 + timestamp
-        -- Lower score = higher priority, FIFO within same priority
-        local priority = job.priority or 5
-        local score = priority * 10000000000000 + now
-        redis.call('ZADD', pending_key, score, job_data)
-        recovered = recovered + 1
+        -- Check if job has exceeded max stalled count
+        if current_stalled_count >= max_stalled_count then
+          -- Job failed permanently, remove data too
+          redis.call('HDEL', data_key, job_id)
+        else
+          -- Recover: increment stalledCount and put back in pending
+          job.stalledCount = current_stalled_count + 1
+          redis.call('HSET', data_key, job_id, cjson.encode(job))
+          -- Score = priority * 1e13 + timestamp
+          local priority = job.priority or 5
+          local score = priority * 10000000000000 + now
+          redis.call('ZADD', pending_key, score, job_id)
+          recovered = recovered + 1
+        end
       end
     end
   end
 
   return recovered
+`
+
+/**
+ * Lua script for getting a job record with its status.
+ */
+const GET_JOB_SCRIPT = `
+  local data_key = KEYS[1]
+  local pending_key = KEYS[2]
+  local delayed_key = KEYS[3]
+  local active_key = KEYS[4]
+  local completed_key = KEYS[5]
+  local failed_key = KEYS[6]
+  local job_id = ARGV[1]
+
+  local job_data = redis.call('HGET', data_key, job_id)
+  if not job_data then
+    return nil
+  end
+
+  local status = nil
+  local finished_at = nil
+  local error_msg = nil
+
+  -- Check status in order
+  if redis.call('HEXISTS', active_key, job_id) == 1 then
+    status = 'active'
+  elseif redis.call('ZSCORE', pending_key, job_id) then
+    status = 'pending'
+  elseif redis.call('ZSCORE', delayed_key, job_id) then
+    status = 'delayed'
+  else
+    local completed_data = redis.call('HGET', completed_key, job_id)
+    if completed_data then
+      status = 'completed'
+      local record = cjson.decode(completed_data)
+      finished_at = record.finishedAt
+    else
+      local failed_data = redis.call('HGET', failed_key, job_id)
+      if failed_data then
+        status = 'failed'
+        local record = cjson.decode(failed_data)
+        finished_at = record.finishedAt
+        error_msg = record.error
+      end
+    end
+  end
+
+  if not status then
+    return nil
+  end
+
+  return cjson.encode({
+    status = status,
+    data = cjson.decode(job_data),
+    finishedAt = finished_at,
+    error = error_msg
+  })
 `
 
 /**
@@ -302,6 +467,19 @@ export class RedisAdapter implements Adapter {
     this.#ownsConnection = ownsConnection
   }
 
+  #getKeys(queue: string) {
+    return {
+      data: `${redisKey}::${queue}::data`,
+      pending: `${redisKey}::${queue}::pending`,
+      delayed: `${redisKey}::${queue}::delayed`,
+      active: `${redisKey}::${queue}::active`,
+      completed: `${redisKey}::${queue}::completed`,
+      completedIndex: `${redisKey}::${queue}::completed::index`,
+      failed: `${redisKey}::${queue}::failed`,
+      failedIndex: `${redisKey}::${queue}::failed::index`,
+    }
+  }
+
   setWorkerId(workerId: string): void {
     this.#workerId = workerId
   }
@@ -317,17 +495,16 @@ export class RedisAdapter implements Adapter {
   }
 
   async popFrom(queue: string): Promise<AcquiredJob | null> {
+    const keys = this.#getKeys(queue)
     const now = Date.now()
-    const pendingKey = `${redisKey}::${queue}`
-    const activeKey = `${redisKey}::${queue}::active`
-    const delayedKey = `${redisKey}::delayed::${queue}`
 
     const result = await this.#connection.eval(
       ACQUIRE_JOB_SCRIPT,
-      3,
-      pendingKey,
-      activeKey,
-      delayedKey,
+      4,
+      keys.data,
+      keys.pending,
+      keys.active,
+      keys.delayed,
       this.#workerId,
       now.toString()
     )
@@ -339,34 +516,96 @@ export class RedisAdapter implements Adapter {
     return JSON.parse(result as string)
   }
 
-  async completeJob(jobId: string, queue: string): Promise<void> {
-    const activeKey = `${redisKey}::${queue}::active`
+  async completeJob(jobId: string, queue: string, removeOnComplete?: JobRetention): Promise<void> {
+    const keys = this.#getKeys(queue)
+    const { keep, maxAge, maxCount } = resolveRetention(removeOnComplete)
 
-    await this.#connection.eval(COMPLETE_JOB_SCRIPT, 1, activeKey, jobId)
+    if (!keep) {
+      await this.#connection.eval(REMOVE_JOB_SCRIPT, 2, keys.data, keys.active, jobId)
+      return
+    }
+
+    await this.#connection.eval(
+      FINALIZE_JOB_SCRIPT,
+      4,
+      keys.data,
+      keys.active,
+      keys.completed,
+      keys.completedIndex,
+      jobId,
+      Date.now().toString(),
+      maxAge.toString(),
+      maxCount.toString(),
+      ''
+    )
   }
 
-  async failJob(jobId: string, queue: string, _error?: Error): Promise<void> {
-    const activeKey = `${redisKey}::${queue}::active`
+  async failJob(
+    jobId: string,
+    queue: string,
+    error?: Error,
+    removeOnFail?: JobRetention
+  ): Promise<void> {
+    const keys = this.#getKeys(queue)
+    const { keep, maxAge, maxCount } = resolveRetention(removeOnFail)
 
-    await this.#connection.eval(FAIL_JOB_SCRIPT, 1, activeKey, jobId)
+    if (!keep) {
+      await this.#connection.eval(REMOVE_JOB_SCRIPT, 2, keys.data, keys.active, jobId)
+      return
+    }
+
+    await this.#connection.eval(
+      FINALIZE_JOB_SCRIPT,
+      4,
+      keys.data,
+      keys.active,
+      keys.failed,
+      keys.failedIndex,
+      jobId,
+      Date.now().toString(),
+      maxAge.toString(),
+      maxCount.toString(),
+      error?.message || ''
+    )
   }
 
   async retryJob(jobId: string, queue: string, retryAt?: Date): Promise<void> {
+    const keys = this.#getKeys(queue)
     const now = Date.now()
-    const activeKey = `${redisKey}::${queue}::active`
-    const pendingKey = `${redisKey}::${queue}`
-    const delayedKey = `${redisKey}::delayed::${queue}`
 
     await this.#connection.eval(
       RETRY_JOB_SCRIPT,
-      3,
-      activeKey,
-      pendingKey,
-      delayedKey,
+      4,
+      keys.data,
+      keys.active,
+      keys.pending,
+      keys.delayed,
       jobId,
       retryAt ? retryAt.getTime().toString() : '0',
       now.toString()
     )
+  }
+
+  async getJob(jobId: string, queue: string): Promise<JobRecord | null> {
+    const keys = this.#getKeys(queue)
+
+    const result = await this.#connection.eval(
+      GET_JOB_SCRIPT,
+      6,
+      keys.data,
+      keys.pending,
+      keys.delayed,
+      keys.active,
+      keys.completed,
+      keys.failed,
+      jobId
+    )
+
+    if (!result) {
+      return null
+    }
+
+    return JSON.parse(result as string)
   }
 
   push(jobData: JobData): Promise<void> {
@@ -378,18 +617,35 @@ export class RedisAdapter implements Adapter {
   }
 
   async pushLaterOn(queue: string, jobData: JobData, delay: number): Promise<void> {
+    const keys = this.#getKeys(queue)
     const executeAt = Date.now() + delay
-    const delayedKey = `${redisKey}::delayed::${queue}`
 
-    await this.#connection.zadd(delayedKey, executeAt, JSON.stringify(jobData))
+    await this.#connection.eval(
+      PUSH_DELAYED_JOB_SCRIPT,
+      2,
+      keys.data,
+      keys.delayed,
+      jobData.id,
+      JSON.stringify(jobData),
+      executeAt.toString()
+    )
   }
 
   async pushOn(queue: string, jobData: JobData): Promise<void> {
+    const keys = this.#getKeys(queue)
     const priority = jobData.priority ?? DEFAULT_PRIORITY
     const timestamp = Date.now()
     const score = calculateScore(priority, timestamp)
 
-    await this.#connection.zadd(`${redisKey}::${queue}`, score, JSON.stringify(jobData))
+    await this.#connection.eval(
+      PUSH_JOB_SCRIPT,
+      2,
+      keys.data,
+      keys.pending,
+      jobData.id,
+      JSON.stringify(jobData),
+      score.toString()
+    )
   }
 
   size(): Promise<number> {
@@ -397,7 +653,8 @@ export class RedisAdapter implements Adapter {
   }
 
   sizeOf(queue: string): Promise<number> {
-    return this.#connection.zcard(`${redisKey}::${queue}`)
+    const keys = this.#getKeys(queue)
+    return this.#connection.zcard(keys.pending)
   }
 
   async recoverStalledJobs(
@@ -405,15 +662,15 @@ export class RedisAdapter implements Adapter {
     stalledThreshold: number,
     maxStalledCount: number
   ): Promise<number> {
+    const keys = this.#getKeys(queue)
     const now = Date.now()
-    const activeKey = `${redisKey}::${queue}::active`
-    const pendingKey = `${redisKey}::${queue}`
 
     const recovered = await this.#connection.eval(
       RECOVER_STALLED_JOBS_SCRIPT,
-      2,
-      activeKey,
-      pendingKey,
+      3,
+      keys.data,
+      keys.active,
+      keys.pending,
       now.toString(),
       stalledThreshold.toString(),
       maxStalledCount.toString()
