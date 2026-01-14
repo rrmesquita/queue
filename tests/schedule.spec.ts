@@ -14,7 +14,6 @@ test.group('ScheduleBuilder', (group) => {
     await QueueManager.init({
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     })
 
     return () => QueueManager.destroy()
@@ -228,7 +227,6 @@ test.group('Schedule', (group) => {
     await QueueManager.init({
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     })
 
     return () => QueueManager.destroy()

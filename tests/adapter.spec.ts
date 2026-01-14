@@ -38,10 +38,8 @@ test.group('Adapter | Redis', (group) => {
 
     // Flush before test
     await connection.flushdb()
-    console.log('[Redis Setup] Flushed DB 15, keys after flush:', await connection.keys('*'))
 
     return async () => {
-      console.log('[Redis Teardown] Keys before quit:', await connection.keys('*'))
       await connection.quit()
     }
   })

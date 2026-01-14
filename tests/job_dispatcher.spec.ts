@@ -11,7 +11,6 @@ test.group('JobDispatcher', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     await QueueManager.init(localConfig)
@@ -35,7 +34,6 @@ test.group('JobDispatcher', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     await QueueManager.init(localConfig)
@@ -61,7 +59,6 @@ test.group('JobDispatcher', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => memoryAdapter, anotherMemory: () => anotherMemoryAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     await QueueManager.init(localConfig)
@@ -89,7 +86,6 @@ test.group('JobDispatcher', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => memoryAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     await QueueManager.init(localConfig)
@@ -116,7 +112,6 @@ test.group('JobDispatcher', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     await QueueManager.init(localConfig)
@@ -142,7 +137,6 @@ test.group('JobDispatcher', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     await QueueManager.init(localConfig)
@@ -170,7 +164,6 @@ test.group('JobDispatcher', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     await QueueManager.init(localConfig)
@@ -196,7 +189,6 @@ test.group('JobDispatcher | DispatchResult', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     await QueueManager.init(localConfig)
@@ -217,7 +209,6 @@ test.group('JobDispatcher | DispatchResult', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     await QueueManager.init(localConfig)

@@ -11,7 +11,6 @@ import * as errors from '../src/exceptions.js'
 const config = {
   default: 'memory',
   adapters: { memory: memory() },
-  locations: ['./jobs/**/*'],
 } satisfies QueueManagerConfig
 
 test.group('Worker', () => {
@@ -51,7 +50,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'chaos',
       adapters: { chaos: () => chaosAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     const worker = new Worker(localConfig)
@@ -81,7 +79,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('TestJob', TestJob)
@@ -131,7 +128,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('TestJob', TestJob)
@@ -176,7 +172,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       retry: {
         maxRetries: 3,
       },
@@ -227,7 +222,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
 
       retry: {
         maxRetries: 2,
@@ -286,7 +280,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('FailingJob', FailingJob)
@@ -338,7 +331,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       worker: {
         concurrency: 2,
       },
@@ -440,7 +432,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('SlowJob', SlowJob)
@@ -487,7 +478,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('SlowJob', SlowJob)
@@ -541,7 +531,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('SlowJob', SlowJob)
@@ -591,7 +580,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       worker: {
         timeout: 50,
       },
@@ -639,7 +627,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('SlowJob', SlowJob)
@@ -686,7 +673,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('FailingJob', FailingJob)
@@ -718,7 +704,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     const worker = new Worker(localConfig)
@@ -759,7 +744,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('BrokenJob', BrokenJob)
@@ -801,7 +785,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       worker: {
         stalledThreshold: 50,
         stalledInterval: 50,
@@ -865,7 +848,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       worker: {
         stalledThreshold: 50,
         stalledInterval: 50,
@@ -943,7 +925,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       worker: {
         concurrency: 5,
       },
@@ -1007,7 +988,6 @@ test.group('Worker', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       worker: {
         concurrency: 5,
       },
@@ -1132,7 +1112,6 @@ test.group('Worker | jobFactory', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       jobFactory: async (JobClass: any) => {
         return new JobClass(emailService)
       },
@@ -1175,7 +1154,6 @@ test.group('Worker | jobFactory', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       jobFactory: async (JobClass: any) => {
         receivedJobClass = JobClass
         return new JobClass()
@@ -1217,7 +1195,6 @@ test.group('Worker | jobFactory', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       jobFactory: async (JobClass: any) => {
         // Simulate async IoC container resolution
         await setTimeout(10)
@@ -1267,7 +1244,6 @@ test.group('Worker | jobFactory', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('TestJob', TestJob)
@@ -1309,7 +1285,6 @@ test.group('Worker | JobContext', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('TestJob', TestJob)
@@ -1350,7 +1325,6 @@ test.group('Worker | JobContext', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
       retry: { maxRetries: 3 },
     }
 
@@ -1400,7 +1374,6 @@ test.group('Worker | JobContext', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('TestJob', TestJob)
@@ -1439,7 +1412,6 @@ test.group('Worker | JobContext', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('TestJob', TestJob)
@@ -1489,7 +1461,6 @@ test.group('Worker | JobContext', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('FailingJob', FailingJob)
@@ -1530,7 +1501,6 @@ test.group('Worker | JobContext', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('TestJob', TestJob)
@@ -1574,7 +1544,6 @@ test.group('Worker | Scheduler Integration', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('ScheduledJob', ScheduledJob)
@@ -1623,7 +1592,6 @@ test.group('Worker | Scheduler Integration', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('ScheduledJob', ScheduledJob)
@@ -1666,7 +1634,6 @@ test.group('Worker | Scheduler Integration', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('ScheduledJob', ScheduledJob)
@@ -1721,7 +1688,6 @@ test.group('Worker | Scheduler Integration', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('QueuedScheduledJob', QueuedScheduledJob)
@@ -1768,7 +1734,6 @@ test.group('Worker | Scheduler Integration', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('ScheduledJob', ScheduledJob)
@@ -1815,7 +1780,6 @@ test.group('Worker | Scheduler Integration', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('MultiScheduleJob', MultiScheduleJob)
@@ -1868,7 +1832,6 @@ test.group('Worker | Scheduler Integration', () => {
     const localConfig = {
       default: 'memory',
       adapters: { memory: () => sharedAdapter },
-      locations: ['./jobs/**/*'],
     }
 
     Locator.register('RegularJob', RegularJob)

@@ -13,7 +13,6 @@ test.group('QueueManager', () => {
       await QueueManager.init({
         default: 'sync',
         adapters: {},
-        locations: ['./jobs/**/*'],
       })
     } catch (error) {
       assert.instanceOf(error, errors.E_CONFIGURATION_ERROR)
@@ -31,7 +30,6 @@ test.group('QueueManager', () => {
       await QueueManager.init({
         default: '',
         adapters: { sync: sync() },
-        locations: ['./jobs/**/*'],
       })
     } catch (error) {
       assert.instanceOf(error, errors.E_CONFIGURATION_ERROR)
@@ -46,7 +44,6 @@ test.group('QueueManager', () => {
       await QueueManager.init({
         default: 'sync',
         adapters: { sync: 'not-a-function' as any },
-        locations: ['./jobs/**/*'],
       })
     } catch (error) {
       assert.instanceOf(error, errors.E_CONFIGURATION_ERROR)
@@ -64,7 +61,6 @@ test.group('QueueManager', () => {
       await QueueManager.init({
         default: 'missing',
         adapters: { sync: sync() },
-        locations: ['./jobs/**/*'],
       })
     } catch (error) {
       assert.instanceOf(error, errors.E_CONFIGURATION_ERROR)
