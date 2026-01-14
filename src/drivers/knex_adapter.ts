@@ -177,11 +177,23 @@ export class KnexAdapter implements Adapter {
       }
 
       // Update job to active status
-      await trx(this.#jobsTable).where('id', job.id).where('queue', queue).update({
+      // For SQLite (no SKIP LOCKED), add status='pending' guard to prevent double-claim
+      const updateQuery = trx(this.#jobsTable).where('id', job.id).where('queue', queue)
+
+      if (!this.#supportsSkipLocked()) {
+        updateQuery.where('status', 'pending')
+      }
+
+      const updated = await updateQuery.update({
         status: 'active',
         worker_id: this.#workerId,
         acquired_at: now,
       })
+
+      // Another worker already claimed this job
+      if (updated === 0) {
+        return null
+      }
 
       const jobData: JobData = JSON.parse(job.data)
 
