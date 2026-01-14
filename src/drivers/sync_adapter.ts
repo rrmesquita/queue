@@ -45,6 +45,16 @@ export class SyncAdapter implements Adapter {
     return Promise.resolve()
   }
 
+  pushMany(jobs: JobData[]): Promise<void> {
+    return this.pushManyOn('default', jobs)
+  }
+
+  async pushManyOn(queue: string, jobs: JobData[]): Promise<void> {
+    for (const job of jobs) {
+      await this.pushOn(queue, job)
+    }
+  }
+
   size(): Promise<number> {
     return this.sizeOf('default')
   }

@@ -80,6 +80,16 @@ export class MemoryAdapter implements Adapter {
     return Promise.resolve()
   }
 
+  async pushMany(jobs: JobData[]): Promise<void> {
+    return this.pushManyOn('default', jobs)
+  }
+
+  async pushManyOn(queue: string, jobs: JobData[]): Promise<void> {
+    for (const job of jobs) {
+      await this.pushOn(queue, job)
+    }
+  }
+
   async pop(): Promise<AcquiredJob | null> {
     return this.popFrom('default')
   }

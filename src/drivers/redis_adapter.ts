@@ -648,6 +648,27 @@ export class RedisAdapter implements Adapter {
     )
   }
 
+  pushMany(jobs: JobData[]): Promise<void> {
+    return this.pushManyOn('default', jobs)
+  }
+
+  async pushManyOn(queue: string, jobs: JobData[]): Promise<void> {
+    if (jobs.length === 0) return
+
+    const keys = this.#getKeys(queue)
+    const now = Date.now()
+    const multi = this.#connection.multi()
+
+    for (const job of jobs) {
+      const priority = job.priority ?? DEFAULT_PRIORITY
+      const score = calculateScore(priority, now)
+      multi.hset(keys.data, job.id, JSON.stringify(job))
+      multi.zadd(keys.pending, score, job.id)
+    }
+
+    await multi.exec()
+  }
+
   size(): Promise<number> {
     return this.sizeOf('default')
   }

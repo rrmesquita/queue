@@ -445,6 +445,27 @@ export class KnexAdapter implements Adapter {
     })
   }
 
+  async pushMany(jobs: JobData[]): Promise<void> {
+    return this.pushManyOn('default', jobs)
+  }
+
+  async pushManyOn(queue: string, jobs: JobData[]): Promise<void> {
+    if (jobs.length === 0) return
+
+    await this.#ensureTables()
+
+    const now = Date.now()
+    const rows = jobs.map((job) => ({
+      id: job.id,
+      queue,
+      status: 'pending' as const,
+      data: JSON.stringify(job),
+      score: calculateScore(job.priority ?? DEFAULT_PRIORITY, now),
+    }))
+
+    await this.#connection(this.#jobsTable).insert(rows)
+  }
+
   async size(): Promise<number> {
     return this.sizeOf('default')
   }

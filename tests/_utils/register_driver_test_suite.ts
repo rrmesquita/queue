@@ -1443,4 +1443,75 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
       assert.deepEqual(claimed.payload, { test: true })
     })
   }
+
+  // pushManyOn tests
+  test('pushManyOn should insert multiple jobs', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushManyOn('test-queue', [
+      { id: 'batch-1', name: 'TestJob', payload: { idx: 1 }, attempts: 0 },
+      { id: 'batch-2', name: 'TestJob', payload: { idx: 2 }, attempts: 0 },
+      { id: 'batch-3', name: 'TestJob', payload: { idx: 3 }, attempts: 0 },
+    ])
+
+    const job1 = await adapter.popFrom('test-queue')
+    const job2 = await adapter.popFrom('test-queue')
+    const job3 = await adapter.popFrom('test-queue')
+    const job4 = await adapter.popFrom('test-queue')
+
+    assert.isNotNull(job1)
+    assert.isNotNull(job2)
+    assert.isNotNull(job3)
+    assert.isNull(job4)
+
+    assert.equal(job1!.id, 'batch-1')
+    assert.equal(job2!.id, 'batch-2')
+    assert.equal(job3!.id, 'batch-3')
+  })
+
+  test('pushManyOn with empty array should not error', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushManyOn('test-queue', [])
+
+    const job = await adapter.popFrom('test-queue')
+    assert.isNull(job)
+  })
+
+  test('pushManyOn should preserve groupId', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushManyOn('test-queue', [
+      { id: 'group-1', name: 'TestJob', payload: {}, attempts: 0, groupId: 'batch-abc' },
+      { id: 'group-2', name: 'TestJob', payload: {}, attempts: 0, groupId: 'batch-abc' },
+    ])
+
+    const job1 = await adapter.popFrom('test-queue')
+    const job2 = await adapter.popFrom('test-queue')
+
+    assert.equal(job1!.groupId, 'batch-abc')
+    assert.equal(job2!.groupId, 'batch-abc')
+  })
+
+  test('pushManyOn should respect priority ordering', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushManyOn('test-queue', [
+      { id: 'low', name: 'TestJob', payload: {}, attempts: 0, priority: 10 },
+      { id: 'high', name: 'TestJob', payload: {}, attempts: 0, priority: 1 },
+      { id: 'medium', name: 'TestJob', payload: {}, attempts: 0, priority: 5 },
+    ])
+
+    const first = await adapter.popFrom('test-queue')
+    const second = await adapter.popFrom('test-queue')
+    const third = await adapter.popFrom('test-queue')
+
+    assert.equal(first!.id, 'high')
+    assert.equal(second!.id, 'medium')
+    assert.equal(third!.id, 'low')
+  })
 }

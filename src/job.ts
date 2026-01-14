@@ -1,4 +1,5 @@
 import { JobDispatcher } from './job_dispatcher.js'
+import { JobBatchDispatcher } from './job_batch_dispatcher.js'
 import { ScheduleBuilder } from './schedule_builder.js'
 import type { JobContext, JobOptions } from './types/main.js'
 
@@ -177,6 +178,57 @@ export abstract class Job<Payload = any> {
     const jobName = options.name || this.name
 
     const dispatcher = new JobDispatcher<T extends Job<infer P> ? P : never>(jobName, payload)
+
+    if (options.queue) {
+      dispatcher.toQueue(options.queue)
+    }
+
+    if (options.adapter) {
+      dispatcher.with(options.adapter)
+    }
+
+    if (options.priority !== undefined) {
+      dispatcher.priority(options.priority)
+    }
+
+    return dispatcher
+  }
+
+  /**
+   * Dispatch multiple jobs to the queue in a single batch.
+   *
+   * Returns a JobBatchDispatcher for fluent configuration before dispatching.
+   * The jobs are not actually dispatched until `.run()` is called or the
+   * dispatcher is awaited.
+   *
+   * This is more efficient than calling `dispatch()` multiple times as it
+   * uses batched operations (e.g., Redis pipeline, SQL batch insert).
+   *
+   * @param payloads - Array of data to pass to each job
+   * @returns A JobBatchDispatcher for fluent configuration
+   *
+   * @example
+   * ```typescript
+   * // Batch dispatch for newsletter
+   * const { jobIds } = await SendEmailJob.dispatchMany([
+   *   { to: 'user1@example.com', subject: 'Newsletter' },
+   *   { to: 'user2@example.com', subject: 'Newsletter' },
+   * ])
+   *   .group('newsletter-jan-2025')
+   *   .toQueue('emails')
+   *   .run()
+   *
+   * console.log(`Dispatched ${jobIds.length} jobs`)
+   * ```
+   */
+  static dispatchMany<T extends Job>(
+    this: new (...args: any[]) => T,
+    payloads: (T extends Job<infer P> ? P : never)[]
+  ): JobBatchDispatcher<T extends Job<infer P> ? P : never> {
+    const options = (this as any).options || {}
+    const jobName = options.name || this.name
+
+    const dispatcher = new JobBatchDispatcher<T extends Job<infer P> ? P : never>(jobName, payloads)
 
     if (options.queue) {
       dispatcher.toQueue(options.queue)

@@ -148,6 +148,27 @@ export interface Adapter {
   pushLaterOn(queue: string, jobData: JobData, delay: number): Promise<void>
 
   /**
+   * Push multiple jobs to the default queue for immediate processing.
+   *
+   * This is more efficient than calling push() multiple times as it
+   * batches the operations (e.g., Redis pipeline, SQL batch insert).
+   *
+   * @param jobs - Array of job data to push
+   */
+  pushMany(jobs: JobData[]): Promise<void>
+
+  /**
+   * Push multiple jobs to a specific queue for immediate processing.
+   *
+   * This is more efficient than calling pushOn() multiple times as it
+   * batches the operations (e.g., Redis pipeline, SQL batch insert).
+   *
+   * @param queue - The queue name to push to
+   * @param jobs - Array of job data to push
+   */
+  pushManyOn(queue: string, jobs: JobData[]): Promise<void>
+
+  /**
    * Get the number of pending jobs in the default queue.
    *
    * @returns The number of pending jobs

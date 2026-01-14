@@ -48,6 +48,20 @@ export interface DispatchResult {
 }
 
 /**
+ * Result returned when dispatching multiple jobs at once.
+ *
+ * @example
+ * ```typescript
+ * const { jobIds } = await SendEmailJob.dispatchMany(payloads)
+ * console.log(`Dispatched ${jobIds.length} jobs`)
+ * ```
+ */
+export interface DispatchManyResult {
+  /** Unique identifiers for all dispatched job instances */
+  jobIds: string[]
+}
+
+/**
  * Internal representation of a job in the queue.
  *
  * This is used by adapters to store and retrieve job data.
