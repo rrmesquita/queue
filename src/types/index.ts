@@ -1,6 +1,8 @@
 export type {
+  AdapterFactory,
   BackoffConfig,
   BackoffStrategy,
+  DispatchManyResult,
   DispatchResult,
   Duration,
   JobClass,
@@ -8,6 +10,9 @@ export type {
   JobData,
   JobFactory,
   JobOptions,
+  JobRecord,
+  JobRetention,
+  JobStatus,
   QueueConfig,
   QueueManagerConfig,
   RetryConfig,
