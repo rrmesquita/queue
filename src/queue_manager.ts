@@ -197,7 +197,7 @@ class QueueManagerSingleton {
    *
    * await SendEmailJob.dispatch({ to: 'user@example.com' })
    *
-   * fake.assertPushed('SendEmailJob')
+   * fake.assertPushed(SendEmailJob)
    * QueueManager.restore()
    * ```
    */

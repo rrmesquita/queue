@@ -233,8 +233,8 @@ const adapter = QueueManager.fake()
 
 await SendEmailJob.dispatch({ to: 'user@example.com' })
 
-adapter.assertPushed('SendEmailJob')
-adapter.assertPushed('SendEmailJob', {
+adapter.assertPushed(SendEmailJob)
+adapter.assertPushed(SendEmailJob, {
   queue: 'default',
   payload: (payload) => payload.to === 'user@example.com',
 })

@@ -1,5 +1,6 @@
 import { setTimeout } from 'node:timers/promises'
 import { test } from '@japa/runner'
+import { Job } from '../src/job.js'
 import { fake } from '../src/drivers/fake_adapter.js'
 
 test.group('FakeAdapter', () => {
@@ -83,6 +84,44 @@ test.group('FakeAdapter', () => {
       delay: (delay) => (delay ?? 0) >= 250,
     })
     assert.isDefined(delayRecord)
+
+    await adapter.destroy()
+  })
+
+  test('should support job class matchers', async ({ assert }) => {
+    const adapter = fake()()
+
+    class SendEmailJob extends Job<{ to: string }> {
+      async execute() {}
+    }
+
+    class CustomNamedJob extends Job {
+      static options = { name: 'CustomJob' }
+      async execute() {}
+    }
+
+    await adapter.pushOn('default', {
+      id: 'job-1',
+      name: 'SendEmailJob',
+      payload: { to: 'user@example.com' },
+      attempts: 0,
+    })
+
+    await adapter.pushOn('default', {
+      id: 'job-2',
+      name: 'CustomJob',
+      payload: null,
+      attempts: 0,
+    })
+
+    adapter.assertPushed(SendEmailJob)
+    adapter.assertPushed(CustomNamedJob)
+
+    class MissingJob extends Job {
+      async execute() {}
+    }
+
+    assert.throws(() => adapter.assertPushed(MissingJob))
 
     await adapter.destroy()
   })

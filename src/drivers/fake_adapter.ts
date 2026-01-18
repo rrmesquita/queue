@@ -5,6 +5,7 @@ import { CronExpressionParser } from 'cron-parser'
 import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
 import type {
   JobData,
+  JobClass,
   JobRecord,
   JobRetention,
   ScheduleConfig,
@@ -13,6 +14,7 @@ import type {
 } from '../types/main.js'
 import { DEFAULT_PRIORITY } from '../constants.js'
 import { parse } from '../utils.js'
+import { Job } from '../job.js'
 
 interface ActiveJob {
   job: JobData
@@ -33,7 +35,7 @@ export interface FakeJobRecord {
   pushedAt: number
 }
 
-export type FakeJobMatcher = string | ((job: JobData) => boolean)
+export type FakeJobMatcher = string | JobClass | ((job: JobData) => boolean)
 export type FakePayloadMatcher =
   | ((payload: any) => boolean)
   | object
@@ -539,7 +541,11 @@ export class FakeAdapter implements Adapter {
     }
 
     const matchesJob =
-      typeof matcher === 'string' ? record.job.name === matcher : matcher(record.job)
+      typeof matcher === 'string'
+        ? record.job.name === matcher
+        : this.#isJobClass(matcher)
+          ? record.job.name === this.#getJobClassName(matcher)
+          : matcher(record.job)
 
     if (!matchesJob) {
       return false
@@ -575,8 +581,9 @@ export class FakeAdapter implements Adapter {
   #formatFailure(prefix: string, matcher: FakeJobMatcher, query?: FakeJobQuery): string {
     const parts = [prefix]
 
-    if (typeof matcher === 'string') {
-      parts.push(`for "${matcher}"`)
+    const matcherName = this.#getMatcherName(matcher)
+    if (matcherName) {
+      parts.push(`for "${matcherName}"`)
     }
 
     if (query?.queue) {
@@ -596,5 +603,25 @@ export class FakeAdapter implements Adapter {
       : 'Pushed jobs: none'
 
     return `${parts.join(' ')}. ${suffix}.`
+  }
+
+  #getMatcherName(matcher: FakeJobMatcher): string | undefined {
+    if (typeof matcher === 'string') {
+      return matcher
+    }
+
+    if (this.#isJobClass(matcher)) {
+      return this.#getJobClassName(matcher)
+    }
+
+    return undefined
+  }
+
+  #isJobClass(matcher: FakeJobMatcher): matcher is JobClass {
+    return typeof matcher === 'function' && matcher.prototype instanceof Job
+  }
+
+  #getJobClassName(JobClass: JobClass): string {
+    return JobClass.options?.name || JobClass.name
   }
 }

@@ -21,7 +21,7 @@ const fake = QueueManager.fake()
 
 await SendEmailJob.dispatch({ to: 'user@example.com' })
 
-fake.assertPushed('SendEmailJob', {
+fake.assertPushed(SendEmailJob, {
   queue: 'default',
   payload: { to: 'user@example.com' },
 })
