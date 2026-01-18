@@ -215,6 +215,34 @@ The adapter automatically creates tables on first use.
 
 </details>
 
+### Fake (testing + assertions)
+
+```typescript
+import { QueueManager } from '@boringnode/queue'
+import { redis } from '@boringnode/queue/drivers/redis_adapter'
+
+await QueueManager.init({
+  default: 'redis',
+  adapters: {
+    redis: redis({ host: 'localhost' }),
+  },
+  locations: ['./app/jobs/**/*.ts'],
+})
+
+const adapter = QueueManager.fake()
+
+await SendEmailJob.dispatch({ to: 'user@example.com' })
+
+adapter.assertPushed('SendEmailJob')
+adapter.assertPushed('SendEmailJob', {
+  queue: 'default',
+  payload: (payload) => payload.to === 'user@example.com',
+})
+adapter.assertPushedCount(1)
+
+QueueManager.restore()
+```
+
 ### Sync (for testing)
 
 ```typescript

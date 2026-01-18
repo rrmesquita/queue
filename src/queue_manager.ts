@@ -2,6 +2,7 @@ import * as errors from './exceptions.js'
 import debug from './debug.js'
 import { Locator } from './locator.js'
 import { consoleLogger, type Logger } from './logger.js'
+import { FakeAdapter } from './drivers/fake_adapter.js'
 import type { Adapter } from './contracts/adapter.js'
 import type {
   AdapterFactory,
@@ -11,6 +12,18 @@ import type {
   QueueManagerConfig,
   RetryConfig,
 } from './types/main.js'
+
+type QueueManagerFakeState = {
+  defaultAdapter: string
+  adapters: Record<string, AdapterFactory>
+  adapterInstances: Map<string, Adapter>
+  globalRetryConfig?: RetryConfig
+  globalJobOptions?: JobOptions
+  queueConfigs: Map<string, QueueConfig>
+  logger: Logger
+  jobFactory?: JobFactory
+  fakeAdapter: FakeAdapter
+}
 
 /**
  * Central configuration and adapter management for the queue system.
@@ -53,6 +66,7 @@ class QueueManagerSingleton {
   #queueConfigs: Map<string, QueueConfig> = new Map()
   #logger: Logger = consoleLogger
   #jobFactory?: JobFactory
+  #fakeState?: QueueManagerFakeState
 
   /**
    * Initialize the queue system with the given configuration.
@@ -169,6 +183,88 @@ class QueueManagerSingleton {
   }
 
   /**
+   * Replace all adapters with a fake adapter for testing.
+   *
+   * The fake adapter records pushed jobs and exposes assertion helpers.
+   * Call `restore()` to return to the previous configuration.
+   *
+   * @returns The fake adapter instance for assertions
+   * @throws {E_QUEUE_NOT_INITIALIZED} If `init()` hasn't been called
+   *
+   * @example
+   * ```typescript
+   * const fake = QueueManager.fake()
+   *
+   * await SendEmailJob.dispatch({ to: 'user@example.com' })
+   *
+   * fake.assertPushed('SendEmailJob')
+   * QueueManager.restore()
+   * ```
+   */
+  fake(): FakeAdapter {
+    if (!this.#initialized) {
+      throw new errors.E_QUEUE_NOT_INITIALIZED()
+    }
+
+    if (this.#fakeState) {
+      return this.#fakeState.fakeAdapter
+    }
+
+    const fakeAdapter = new FakeAdapter()
+
+    this.#fakeState = {
+      defaultAdapter: this.#defaultAdapter,
+      adapters: this.#adapters,
+      adapterInstances: this.#adapterInstances,
+      globalRetryConfig: this.#globalRetryConfig,
+      globalJobOptions: this.#globalJobOptions,
+      queueConfigs: this.#queueConfigs,
+      logger: this.#logger,
+      jobFactory: this.#jobFactory,
+      fakeAdapter,
+    }
+
+    const fakeFactory = () => fakeAdapter
+    const nextAdapters: Record<string, AdapterFactory> = {}
+
+    for (const name of Object.keys(this.#fakeState.adapters)) {
+      nextAdapters[name] = fakeFactory
+    }
+
+    this.#adapters = nextAdapters
+    this.#adapterInstances = new Map()
+
+    return fakeAdapter
+  }
+
+  /**
+   * Restore adapters after calling `fake()`.
+   */
+  restore(): void {
+    if (!this.#fakeState) {
+      return
+    }
+
+    void this.#fakeState.fakeAdapter.destroy()
+
+    for (const adapter of this.#adapterInstances.values()) {
+      void adapter.destroy()
+    }
+
+    const state = this.#fakeState
+    this.#fakeState = undefined
+
+    this.#defaultAdapter = state.defaultAdapter
+    this.#adapters = state.adapters
+    this.#adapterInstances = state.adapterInstances
+    this.#globalRetryConfig = state.globalRetryConfig
+    this.#globalJobOptions = state.globalJobOptions
+    this.#queueConfigs = state.queueConfigs
+    this.#logger = state.logger
+    this.#jobFactory = state.jobFactory
+  }
+
+  /**
    * Get the merged retry configuration for a job.
    *
    * Configuration is merged with priority: job > queue > global.
@@ -268,8 +364,19 @@ class QueueManagerSingleton {
       debug('destroying adapter "%s"', name)
       await adapter.destroy()
     }
+
+    if (this.#fakeState) {
+      await this.#fakeState.fakeAdapter.destroy()
+
+      for (const [name, adapter] of this.#fakeState.adapterInstances) {
+        debug('destroying adapter "%s"', name)
+        await adapter.destroy()
+      }
+    }
+
     this.#adapterInstances.clear()
     this.#initialized = false
+    this.#fakeState = undefined
   }
 }
 

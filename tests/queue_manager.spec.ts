@@ -168,4 +168,22 @@ test.group('QueueManager', () => {
     assert.equal(logger.logs[0].level, 'warn')
     assert.include(logger.logs[0].message, 'No jobs found for locations')
   })
+
+  test('should fake adapters and restore them', async ({ assert }) => {
+    await QueueManager.init({
+      default: 'sync',
+      adapters: { sync: sync() },
+    })
+
+    const original = QueueManager.use()
+    const fakeAdapter = QueueManager.fake()
+
+    assert.strictEqual(QueueManager.use(), fakeAdapter)
+
+    QueueManager.restore()
+
+    assert.strictEqual(QueueManager.use(), original)
+
+    await QueueManager.destroy()
+  })
 })
