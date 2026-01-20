@@ -349,7 +349,7 @@ export class Worker {
           mergedConfig.maxRetries
         )
         await this.#adapter.failJob(job.id, queue, e as Error, retention.removeOnFail)
-        const exception = new errors.E_JOB_MAX_ATTEMPTS_REACHED([job.name])
+        const exception = new errors.E_JOB_MAX_ATTEMPTS_REACHED([job.name], { cause: e })
         await instance.failed?.(exception)
 
         return

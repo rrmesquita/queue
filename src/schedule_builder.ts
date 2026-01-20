@@ -131,7 +131,12 @@ export class ScheduleBuilder implements PromiseLike<ScheduleResult> {
       try {
         CronExpressionParser.parse(this.#cronExpression, { tz: this.#timezone })
       } catch (error) {
-        throw new errors.E_INVALID_CRON_EXPRESSION([this.#cronExpression, (error as Error).message])
+        throw new errors.E_INVALID_CRON_EXPRESSION(
+          [this.#cronExpression, (error as Error).message],
+          {
+            cause: error,
+          }
+        )
       }
     }
 

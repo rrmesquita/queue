@@ -178,7 +178,7 @@ class QueueManagerSingleton {
       return instance
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      throw new errors.E_ADAPTER_INIT_ERROR([adapter, message])
+      throw new errors.E_ADAPTER_INIT_ERROR([adapter, message], { cause: error })
     }
   }
 
