@@ -286,9 +286,9 @@ class QueueManagerSingleton {
     const queueRetryConfig = queueConfig?.retry || {}
 
     let maxRetries =
-      jobRetryConfig?.maxRetries ||
-      queueRetryConfig.maxRetries ||
-      this.#globalRetryConfig?.maxRetries ||
+      jobRetryConfig?.maxRetries ??
+      queueRetryConfig.maxRetries ??
+      this.#globalRetryConfig?.maxRetries ??
       0
 
     let backoff =

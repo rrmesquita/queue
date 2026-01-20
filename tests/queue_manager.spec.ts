@@ -113,6 +113,23 @@ test.group('QueueManager', () => {
     assert.equal(config.maxRetries, 2)
   })
 
+  test('should respect maxRetries: 0 from job config over global/queue config', async ({
+    assert,
+  }) => {
+    await QueueManager.init({
+      default: 'sync',
+      adapters: { sync: sync() },
+      locations: ['./examples/jobs/**/*'],
+      retry: { maxRetries: 5, backoff: exponentialBackoff() },
+      queues: {
+        email: { retry: { maxRetries: 3 } },
+      },
+    })
+
+    let config = QueueManager.getMergedRetryConfig('email', { maxRetries: 0 })
+    assert.equal(config.maxRetries, 0)
+  })
+
   test('should throw E_QUEUE_NOT_INITIALIZED when use() called before init()', async ({
     assert,
   }) => {
