@@ -276,8 +276,25 @@ export class Worker {
           continue
         }
 
-        const completed = await this.#pool.waitForNextCompletion()
-        yield { type: 'completed', queue: completed.queue, job: completed.job }
+        const hasCapacity = this.#pool.hasCapacity(this.#concurrency)
+
+        // If we have capacity, don't block indefinitely waiting for a completion;
+        // wake up periodically to try to acquire newly enqueued jobs.
+        const result = await Promise.race([
+          this.#pool
+            .waitForNextCompletion()
+            .then((completed) => ({ kind: 'completed' as const, completed })),
+          ...(hasCapacity
+            ? [setTimeout(this.#idleDelay).then(() => ({ kind: 'tick' as const }))]
+            : []),
+        ])
+
+        if (result.kind === 'tick') {
+          // No completion yet, but we woke up to check the queue again
+          continue
+        }
+
+        yield { type: 'completed', queue: result.completed.queue, job: result.completed.job }
       } catch (error) {
         yield {
           type: 'error',

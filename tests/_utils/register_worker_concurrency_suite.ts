@@ -193,4 +193,127 @@ export function registerWorkerConcurrencyTestSuite(options: WorkerConcurrencyTes
       'No job should appear twice in execution order'
     )
   })
+
+  test('jobs dispatched with delays should run concurrently when capacity is available', async ({
+    assert,
+    cleanup,
+  }) => {
+    const jobStartTimes: Map<string, number> = new Map()
+    const jobEndTimes: Map<string, number> = new Map()
+
+    class SlowJob extends Job<{ jobId: string }> {
+      async execute() {
+        jobStartTimes.set(this.payload.jobId, Date.now())
+        // Simulate a slow job (300ms)
+        await setTimeout(300)
+        jobEndTimes.set(this.payload.jobId, Date.now())
+      }
+    }
+
+    const adapter = await options.createAdapter()
+    Locator.register(SlowJob.name, SlowJob)
+
+    cleanup(() => Locator.clear())
+
+    const config: QueueManagerConfig = {
+      default: 'test',
+      adapters: { test: () => adapter },
+      worker: {
+        concurrency: 5,
+        idleDelay: 50, // Short idle delay to pick up new jobs quickly
+      },
+    }
+
+    const worker = new Worker(config)
+
+    cleanup(async () => {
+      await worker.stop()
+    })
+
+    // Start processing in background
+    const processingPromise = (async () => {
+      let cycles = 0
+      const maxCycles = 50
+      while (cycles < maxCycles) {
+        const cycle = await worker.processCycle(['default'])
+        cycles++
+        if (cycle?.type === 'idle' && jobEndTimes.size === 4) break
+      }
+    })()
+
+    // Push jobs with delays between them (simulating the user's scenario)
+    await adapter.pushOn('default', {
+      id: 'delayed-job-0',
+      name: 'SlowJob',
+      payload: { jobId: 'job-0' },
+      attempts: 0,
+    })
+
+    await setTimeout(50)
+
+    await adapter.pushOn('default', {
+      id: 'delayed-job-1',
+      name: 'SlowJob',
+      payload: { jobId: 'job-1' },
+      attempts: 0,
+    })
+
+    await setTimeout(50)
+
+    await adapter.pushOn('default', {
+      id: 'delayed-job-2',
+      name: 'SlowJob',
+      payload: { jobId: 'job-2' },
+      attempts: 0,
+    })
+
+    await setTimeout(50)
+
+    await adapter.pushOn('default', {
+      id: 'delayed-job-3',
+      name: 'SlowJob',
+      payload: { jobId: 'job-3' },
+      attempts: 0,
+    })
+
+    await processingPromise
+
+    // All 4 jobs should have been executed
+    assert.equal(jobStartTimes.size, 4, 'All 4 jobs should have started')
+    assert.equal(jobEndTimes.size, 4, 'All 4 jobs should have completed')
+
+    // Verify concurrent execution: jobs 1, 2, 3 should start BEFORE job 0 ends
+    // If they ran sequentially, job 1 would start after job 0's 300ms execution
+    const job0Start = jobStartTimes.get('job-0')!
+    const job0End = jobEndTimes.get('job-0')!
+    const job1Start = jobStartTimes.get('job-1')!
+    const job2Start = jobStartTimes.get('job-2')!
+    const job3Start = jobStartTimes.get('job-3')!
+
+    // Job 1 should start before job 0 ends (proving concurrency)
+    assert.isTrue(
+      job1Start < job0End,
+      `Job 1 should start (${job1Start}) before job 0 ends (${job0End}) - concurrent execution`
+    )
+
+    // Job 2 should start before job 0 ends
+    assert.isTrue(
+      job2Start < job0End,
+      `Job 2 should start (${job2Start}) before job 0 ends (${job0End}) - concurrent execution`
+    )
+
+    // Job 3 should start before job 0 ends
+    assert.isTrue(
+      job3Start < job0End,
+      `Job 3 should start (${job3Start}) before job 0 ends (${job0End}) - concurrent execution`
+    )
+
+    // All jobs should start within a reasonable time window (not sequentially)
+    const maxStartDiff = Math.max(job1Start, job2Start, job3Start) - job0Start
+    assert.isBelow(
+      maxStartDiff,
+      250,
+      `All jobs should start within 250ms of each other (actual: ${maxStartDiff}ms)`
+    )
+  })
 }
