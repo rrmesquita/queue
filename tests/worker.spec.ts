@@ -509,7 +509,7 @@ test.group('Worker', () => {
   })
 
   test('should not retry timed out job when failOnTimeout is true', async ({ assert, cleanup }) => {
-    assert.plan(2)
+    assert.plan(3)
 
     let attempts = 0
 
@@ -557,6 +557,7 @@ test.group('Worker', () => {
     const cycle = await worker.processCycle(['default'])
     // @ts-ignore
     assert.equal(cycle.type, 'idle')
+    assert.equal(attempts, 1)
   })
 
   test('should use global worker timeout when job timeout is not set', async ({
