@@ -123,12 +123,10 @@ Organize related jobs together for monitoring and filtering:
 
 ```typescript
 // Group newsletter jobs
-await SendEmailJob.dispatch({ to: 'user@example.com' })
-  .group('newsletter-jan-2025')
+await SendEmailJob.dispatch({ to: 'user@example.com' }).group('newsletter-jan-2025')
 
 // Group with bulk dispatch
-await SendEmailJob.dispatchMany(recipients)
-  .group('newsletter-jan-2025')
+await SendEmailJob.dispatchMany(recipients).group('newsletter-jan-2025')
 ```
 
 The `groupId` is stored with job data and accessible via `job.data.groupId`.
@@ -153,7 +151,7 @@ export default class ImportantJob extends Job<Payload> {
 <summary><strong>Retention options</strong></summary>
 
 | Value                       | Behavior           |
-|-----------------------------|--------------------|
+| --------------------------- | ------------------ |
 | `true` (default)            | Remove immediately |
 | `false`                     | Keep forever       |
 | `{ count: n }`              | Keep last n jobs   |
@@ -164,9 +162,9 @@ Query job history:
 
 ```typescript
 const job = await adapter.getJob('job-id', 'queue-name')
-console.log(job.status)      // 'completed' | 'failed'
-console.log(job.finishedAt)  // timestamp
-console.log(job.error)       // error message (if failed)
+console.log(job.status) // 'completed' | 'failed'
+console.log(job.finishedAt) // timestamp
+console.log(job.error) // error message (if failed)
 ```
 
 </details>
@@ -256,13 +254,13 @@ const adapter = sync() // Jobs execute immediately
 ```typescript
 export default class MyJob extends Job<Payload> {
   static options: JobOptions = {
-    queue: 'email',       // Queue name (default: 'default')
-    priority: 1,          // Lower = higher priority (default: 5)
-    maxRetries: 3,        // Retry attempts before failing
-    timeout: '30s',       // Max execution time
-    failOnTimeout: true,  // Fail permanently on timeout (default: retry)
-    removeOnComplete: { count: 100 },  // Keep last 100 completed
-    removeOnFail: { age: '7d' },       // Keep failed for 7 days
+    queue: 'email', // Queue name (default: 'default')
+    priority: 1, // Lower = higher priority (default: 5)
+    maxRetries: 3, // Retry attempts before failing
+    timeout: '30s', // Max execution time
+    failOnTimeout: true, // Fail permanently on timeout (default: retry)
+    removeOnComplete: { count: 100 }, // Keep last 100 completed
+    removeOnFail: { age: '7d' }, // Keep failed for 7 days
   }
 }
 ```
@@ -270,10 +268,10 @@ export default class MyJob extends Job<Payload> {
 ## Delayed Jobs
 
 ```typescript
-await SendEmailJob.dispatch(payload).in('30s')  // 30 seconds
-await SendEmailJob.dispatch(payload).in('5m')   // 5 minutes
-await SendEmailJob.dispatch(payload).in('2h')   // 2 hours
-await SendEmailJob.dispatch(payload).in('1d')   // 1 day
+await SendEmailJob.dispatch(payload).in('30s') // 30 seconds
+await SendEmailJob.dispatch(payload).in('5m') // 5 minutes
+await SendEmailJob.dispatch(payload).in('2h') // 2 hours
+await SendEmailJob.dispatch(payload).in('1d') // 1 day
 ```
 
 ## Retry & Backoff
@@ -285,12 +283,13 @@ export default class ReliableJob extends Job<Payload> {
   static options: JobOptions = {
     maxRetries: 5,
     retry: {
-      backoff: () => exponentialBackoff({
-        baseDelay: '1s',
-        maxDelay: '1m',
-        multiplier: 2,
-        jitter: true,
-      }),
+      backoff: () =>
+        exponentialBackoff({
+          baseDelay: '1s',
+          maxDelay: '1m',
+          multiplier: 2,
+          jitter: true,
+        }),
     },
   }
 }
@@ -356,13 +355,12 @@ Run jobs on a recurring basis:
 
 ```typescript
 // Every 10 seconds
-await MetricsJob.schedule({ endpoint: '/health' })
-  .every('10s')
+await MetricsJob.schedule({ endpoint: '/health' }).every('10s')
 
 // Cron schedule
 await CleanupJob.schedule({ days: 30 })
   .id('daily-cleanup')
-  .cron('0 0 * * *')  // Midnight daily
+  .cron('0 0 * * *') // Midnight daily
   .timezone('Europe/Paris')
 ```
 
@@ -376,7 +374,7 @@ import { Schedule } from '@boringnode/queue'
 const schedule = await Schedule.find('daily-cleanup')
 await schedule.pause()
 await schedule.resume()
-await schedule.trigger()  // Run now
+await schedule.trigger() // Run now
 await schedule.delete()
 
 // List schedules
@@ -387,7 +385,7 @@ const active = await Schedule.list({ status: 'active' })
 **Schedule options:**
 
 | Method              | Description                       |
-|---------------------|-----------------------------------|
+| ------------------- | --------------------------------- |
 | `.id(string)`       | Unique identifier                 |
 | `.every(duration)`  | Fixed interval ('5s', '1m', '1h') |
 | `.cron(expression)` | Cron schedule                     |
@@ -437,13 +435,13 @@ export default class SendEmailJob extends Job<SendEmailPayload> {
 ```typescript
 const config = {
   worker: {
-    concurrency: 5,        // Parallel jobs
-    idleDelay: '2s',       // Poll interval when idle
-    timeout: '1m',         // Default job timeout
+    concurrency: 5, // Parallel jobs
+    idleDelay: '2s', // Poll interval when idle
+    timeout: '1m', // Default job timeout
     stalledThreshold: '30s', // When to consider job stalled
-    stalledInterval: '30s',  // How often to check
-    maxStalledCount: 1,      // Max recoveries before failing
-    gracefulShutdown: true,  // Wait for jobs on SIGTERM
+    stalledInterval: '30s', // How often to check
+    maxStalledCount: 1, // Max recoveries before failing
+    gracefulShutdown: true, // Wait for jobs on SIGTERM
   },
 }
 ```
@@ -464,7 +462,7 @@ await QueueManager.init({
 Performance comparison with BullMQ (5ms simulated work per job):
 
 | Jobs | Concurrency | @boringnode/queue | BullMQ | Diff        |
-|------|-------------|-------------------|--------|-------------|
+| ---- | ----------- | ----------------- | ------ | ----------- |
 | 1000 | 5           | 1096ms            | 1116ms | 1.8% faster |
 | 1000 | 10          | 565ms             | 579ms  | 2.4% faster |
 | 100K | 10          | 56.2s             | 57.5s  | 2.1% faster |
