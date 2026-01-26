@@ -3,6 +3,7 @@ import { test } from '@japa/runner'
 import { Redis } from 'ioredis'
 import { RedisAdapter } from '../src/drivers/redis_adapter.js'
 import { KnexAdapter } from '../src/drivers/knex_adapter.js'
+import { QueueSchemaService } from '../src/services/queue_schema.js'
 import { registerWorkerConcurrencyTestSuite } from './_utils/register_worker_concurrency_suite.js'
 
 const KEY_PREFIX = 'boringnode::queue::concurrency-test::'
@@ -37,8 +38,9 @@ test.group('Worker Concurrency | Redis', (group) => {
 test.group('Worker Concurrency | Knex (PostgreSQL)', (group) => {
   let connection: ReturnType<typeof Knex>
   let adapter: KnexAdapter
+  let schemaService: QueueSchemaService
   const tableName = 'queue_jobs_concurrency_test'
-  const schedulesTableName = 'queue_schedules'
+  const schedulesTableName = 'queue_schedules_concurrency_test'
 
   group.each.setup(async () => {
     connection = Knex({
@@ -52,14 +54,20 @@ test.group('Worker Concurrency | Knex (PostgreSQL)', (group) => {
       },
     })
 
+    schemaService = new QueueSchemaService(connection)
+
     // Drop both tables to ensure clean state
-    await connection.schema.dropTableIfExists(tableName)
-    await connection.schema.dropTableIfExists(schedulesTableName)
+    await schemaService.dropJobsTable(tableName)
+    await schemaService.dropSchedulesTable(schedulesTableName)
+
+    // Create tables
+    await schemaService.createJobsTable(tableName)
+    await schemaService.createSchedulesTable(schedulesTableName)
 
     return async () => {
       await adapter?.destroy()
-      await connection.schema.dropTableIfExists(tableName)
-      await connection.schema.dropTableIfExists(schedulesTableName)
+      await schemaService.dropJobsTable(tableName)
+      await schemaService.dropSchedulesTable(schedulesTableName)
       await connection.destroy()
     }
   })
@@ -67,7 +75,7 @@ test.group('Worker Concurrency | Knex (PostgreSQL)', (group) => {
   registerWorkerConcurrencyTestSuite({
     test,
     createAdapter: () => {
-      adapter = new KnexAdapter({ connection, tableName })
+      adapter = new KnexAdapter({ connection, tableName, schedulesTableName })
       return adapter
     },
   })

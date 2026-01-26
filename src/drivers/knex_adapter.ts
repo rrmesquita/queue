@@ -51,7 +51,6 @@ export class KnexAdapter implements Adapter {
   readonly #schedulesTable: string
   readonly #ownsConnection: boolean
   #workerId: string = ''
-  #initialized: boolean = false
 
   constructor(config: KnexAdapterOptions) {
     this.#connection = config.connection
@@ -62,85 +61,6 @@ export class KnexAdapter implements Adapter {
 
   setWorkerId(workerId: string): void {
     this.#workerId = workerId
-  }
-
-  /**
-   * Ensure all required tables exist.
-   * Creates them if not exists, handles race conditions.
-   */
-  async #ensureTables(): Promise<void> {
-    if (this.#initialized) return
-
-    await Promise.all([this.#createJobsTable(), this.#createSchedulesTable()])
-
-    this.#initialized = true
-  }
-
-  async #createJobsTable(): Promise<void> {
-    try {
-      await this.#connection.schema.createTable(this.#jobsTable, (table) => {
-        table.string('id', 255).notNullable()
-        table.string('queue', 255).notNullable()
-        table.enu('status', ['pending', 'active', 'delayed', 'completed', 'failed']).notNullable()
-        table.text('data').notNullable()
-        table.bigint('score').unsigned().nullable()
-        table.string('worker_id', 255).nullable()
-        table.bigint('acquired_at').unsigned().nullable()
-        table.bigint('execute_at').unsigned().nullable()
-        table.bigint('finished_at').unsigned().nullable()
-        table.text('error').nullable()
-        table.primary(['id', 'queue'])
-        table.index(['queue', 'status', 'score'])
-        table.index(['queue', 'status', 'execute_at'])
-        table.index(['queue', 'status', 'finished_at'])
-      })
-    } catch {
-      /**
-       * If table creation fails, verify the table actually exists.
-       * This handles race conditions where multiple instances try to create
-       * the table simultaneously.
-       */
-      const hasTable = await this.#connection.schema.hasTable(this.#jobsTable)
-      if (!hasTable) {
-        throw new Error(`Failed to create table "${this.#jobsTable}"`)
-      }
-    }
-  }
-
-  async #createSchedulesTable(): Promise<void> {
-    try {
-      await this.#connection.schema.createTable(this.#schedulesTable, (table) => {
-        table.string('id', 255).primary()
-        table.string('status', 50).notNullable().defaultTo('active')
-        table.string('name', 255).notNullable()
-        table.text('payload').notNullable()
-        table.string('cron_expression', 255).nullable()
-        table.bigint('every_ms').unsigned().nullable()
-        table.string('timezone', 100).notNullable().defaultTo('UTC')
-        table.timestamp('from_date').nullable()
-        table.timestamp('to_date').nullable()
-        table.integer('run_limit').unsigned().nullable()
-        table.integer('run_count').unsigned().notNullable().defaultTo(0)
-        table.timestamp('next_run_at').nullable()
-        table.timestamp('last_run_at').nullable()
-        table
-          .timestamp('created_at')
-          .notNullable()
-          .defaultTo(this.#connection.fn.now())
-        // Indexes
-        table.index(['status', 'next_run_at'])
-      })
-    } catch {
-      /**
-       * If table creation fails, verify the table actually exists.
-       * This handles race conditions where multiple instances try to create
-       * the table simultaneously.
-       */
-      const hasTable = await this.#connection.schema.hasTable(this.#schedulesTable)
-      if (!hasTable) {
-        throw new Error(`Failed to create table "${this.#schedulesTable}"`)
-      }
-    }
   }
 
   async destroy(): Promise<void> {
@@ -154,8 +74,6 @@ export class KnexAdapter implements Adapter {
   }
 
   async popFrom(queue: string): Promise<AcquiredJob | null> {
-    await this.#ensureTables()
-
     const now = Date.now()
 
     // First, move ready delayed jobs to pending
@@ -255,8 +173,6 @@ export class KnexAdapter implements Adapter {
   }
 
   async completeJob(jobId: string, queue: string, removeOnComplete?: JobRetention): Promise<void> {
-    await this.#ensureTables()
-
     const { keep, maxAge, maxCount } = resolveRetention(removeOnComplete)
 
     if (!keep) {
@@ -294,8 +210,6 @@ export class KnexAdapter implements Adapter {
     error?: Error,
     removeOnFail?: JobRetention
   ): Promise<void> {
-    await this.#ensureTables()
-
     const { keep, maxAge, maxCount } = resolveRetention(removeOnFail)
 
     if (!keep) {
@@ -329,8 +243,6 @@ export class KnexAdapter implements Adapter {
   }
 
   async getJob(jobId: string, queue: string): Promise<JobRecord | null> {
-    await this.#ensureTables()
-
     const row = await this.#connection(this.#jobsTable)
       .where('id', jobId)
       .where('queue', queue)
@@ -383,8 +295,6 @@ export class KnexAdapter implements Adapter {
   }
 
   async retryJob(jobId: string, queue: string, retryAt?: Date): Promise<void> {
-    await this.#ensureTables()
-
     const now = Date.now()
 
     // Get the active job
@@ -438,8 +348,6 @@ export class KnexAdapter implements Adapter {
   }
 
   async pushOn(queue: string, jobData: JobData): Promise<void> {
-    await this.#ensureTables()
-
     const priority = jobData.priority ?? DEFAULT_PRIORITY
     const timestamp = Date.now()
     const score = calculateScore(priority, timestamp)
@@ -458,8 +366,6 @@ export class KnexAdapter implements Adapter {
   }
 
   async pushLaterOn(queue: string, jobData: JobData, delay: number): Promise<void> {
-    await this.#ensureTables()
-
     const executeAt = Date.now() + delay
 
     await this.#connection(this.#jobsTable).insert({
@@ -478,8 +384,6 @@ export class KnexAdapter implements Adapter {
   async pushManyOn(queue: string, jobs: JobData[]): Promise<void> {
     if (jobs.length === 0) return
 
-    await this.#ensureTables()
-
     const now = Date.now()
     const rows = jobs.map((job) => ({
       id: job.id,
@@ -497,8 +401,6 @@ export class KnexAdapter implements Adapter {
   }
 
   async sizeOf(queue: string): Promise<number> {
-    await this.#ensureTables()
-
     const result = await this.#connection(this.#jobsTable)
       .where('queue', queue)
       .where('status', 'pending')
@@ -513,8 +415,6 @@ export class KnexAdapter implements Adapter {
     stalledThreshold: number,
     maxStalledCount: number
   ): Promise<number> {
-    await this.#ensureTables()
-
     const now = Date.now()
     const stalledCutoff = now - stalledThreshold
 
@@ -570,8 +470,6 @@ export class KnexAdapter implements Adapter {
   }
 
   async createSchedule(config: ScheduleConfig): Promise<string> {
-    await this.#ensureTables()
-
     const id = config.id ?? randomUUID()
 
     const data = {
@@ -611,8 +509,6 @@ export class KnexAdapter implements Adapter {
   }
 
   async getSchedule(id: string): Promise<ScheduleData | null> {
-    await this.#ensureTables()
-
     const row = await this.#connection(this.#schedulesTable)
       .where('id', id)
       .first()
@@ -622,8 +518,6 @@ export class KnexAdapter implements Adapter {
   }
 
   async listSchedules(options?: ScheduleListOptions): Promise<ScheduleData[]> {
-    await this.#ensureTables()
-
     let query = this.#connection(this.#schedulesTable).whereNot('status', 'cancelled')
 
     if (options?.status) {
@@ -638,8 +532,6 @@ export class KnexAdapter implements Adapter {
     id: string,
     updates: Partial<Pick<ScheduleData, 'status' | 'nextRunAt' | 'lastRunAt' | 'runCount'>>
   ): Promise<void> {
-    await this.#ensureTables()
-
     const data: Record<string, any> = {}
 
     if (updates.status !== undefined) data.status = updates.status
@@ -655,16 +547,12 @@ export class KnexAdapter implements Adapter {
   }
 
   async deleteSchedule(id: string): Promise<void> {
-    await this.#ensureTables()
-
     await this.#connection(this.#schedulesTable)
       .where('id', id)
       .delete()
   }
 
   async claimDueSchedule(): Promise<ScheduleData | null> {
-    await this.#ensureTables()
-
     const now = new Date()
 
     return this.#connection.transaction(async (trx) => {

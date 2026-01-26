@@ -209,7 +209,50 @@ const adapter = knex(connection)
 const adapter = knex(config, 'custom_jobs_table')
 ```
 
-The adapter automatically creates tables on first use.
+</details>
+
+<details>
+<summary><strong>Database setup with QueueSchemaService</strong></summary>
+
+The Knex adapter requires tables to be created before use. Use `QueueSchemaService` to create them:
+
+```typescript
+import { QueueSchemaService } from '@boringnode/queue'
+import Knex from 'knex'
+
+const connection = Knex({ client: 'pg', connection: '...' })
+const schemaService = new QueueSchemaService(connection)
+
+// Create tables with default names
+await schemaService.createJobsTable()
+await schemaService.createSchedulesTable()
+
+// Or extend with custom columns
+await schemaService.createJobsTable('queue_jobs', (table) => {
+  table.string('tenant_id', 255).nullable()
+})
+```
+
+**AdonisJS migration example:**
+
+```typescript
+import { BaseSchema } from '@adonisjs/lucid/schema'
+import { QueueSchemaService } from '@boringnode/queue'
+
+export default class extends BaseSchema {
+  async up() {
+    const schemaService = new QueueSchemaService(this.db.connection().getWriteClient())
+    await schemaService.createJobsTable()
+    await schemaService.createSchedulesTable()
+  }
+
+  async down() {
+    const schemaService = new QueueSchemaService(this.db.connection().getWriteClient())
+    await schemaService.dropSchedulesTable()
+    await schemaService.dropJobsTable()
+  }
+}
+```
 
 </details>
 
