@@ -86,6 +86,48 @@ test.group('Adapter | Redis', (group) => {
       stream.write = originalWrite
     }
   })
+
+  test('deleteSchedule should not leave ghost index under write-failure chaos', async ({ assert }) => {
+    const adapter = new RedisAdapter(connection)
+    const id = 'chaos-delete-schedule'
+
+    await adapter.upsertSchedule({
+      id,
+      name: 'ChaosJob',
+      payload: {},
+      everyMs: 60_000,
+      timezone: 'UTC',
+    })
+
+    const stream = (connection as any).stream as { write: (...args: any[]) => any }
+    const originalWrite = stream.write.bind(stream)
+    let writes = 0
+
+    stream.write = ((...args: any[]) => {
+      writes++
+      if (writes === 2) {
+        throw new Error('chaos: second network write blocked')
+      }
+      return originalWrite(...args)
+    }) as typeof stream.write
+
+    try {
+      await adapter.deleteSchedule(id)
+    } finally {
+      stream.write = originalWrite
+    }
+
+    const scheduleExists = await connection.exists(`schedules::${id}`)
+    const indexContains = await connection.sismember('schedules::index', id)
+
+    assert.equal(scheduleExists, 0)
+    assert.equal(indexContains, 0)
+    assert.equal(
+      writes,
+      1,
+      'deleteSchedule should be emitted in a single write window to avoid partial state'
+    )
+  })
 })
 
 test.group('Adapter | Knex (SQLite)', (group) => {

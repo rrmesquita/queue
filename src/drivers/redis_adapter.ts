@@ -815,8 +815,7 @@ export class RedisAdapter implements Adapter {
 
   async deleteSchedule(id: string): Promise<void> {
     const scheduleKey = `${schedulesKey}::${id}`
-    await this.#connection.del(scheduleKey)
-    await this.#connection.srem(schedulesIndexKey, id)
+    await this.#connection.multi().del(scheduleKey).srem(schedulesIndexKey, id).exec()
   }
 
   async claimDueSchedule(): Promise<ScheduleData | null> {
