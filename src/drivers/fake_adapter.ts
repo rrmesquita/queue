@@ -343,7 +343,7 @@ export class FakeAdapter implements Adapter {
     return Promise.resolve()
   }
 
-  async createSchedule(config: ScheduleConfig): Promise<string> {
+  async upsertSchedule(config: ScheduleConfig): Promise<string> {
     const id = config.id ?? randomUUID()
     const now = new Date()
 
@@ -366,6 +366,13 @@ export class FakeAdapter implements Adapter {
 
     this.#schedules.set(id, schedule)
     return id
+  }
+
+  /**
+   * @deprecated Use `upsertSchedule` instead.
+   */
+  createSchedule(config: ScheduleConfig): Promise<string> {
+    return this.upsertSchedule(config)
   }
 
   async getSchedule(id: string): Promise<ScheduleData | null> {

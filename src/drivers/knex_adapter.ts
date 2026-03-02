@@ -469,7 +469,7 @@ export class KnexAdapter implements Adapter {
     })
   }
 
-  async createSchedule(config: ScheduleConfig): Promise<string> {
+  async upsertSchedule(config: ScheduleConfig): Promise<string> {
     const id = config.id ?? randomUUID()
 
     const data = {
@@ -506,6 +506,13 @@ export class KnexAdapter implements Adapter {
       })
 
     return id
+  }
+
+  /**
+   * @deprecated Use `upsertSchedule` instead.
+   */
+  createSchedule(config: ScheduleConfig): Promise<string> {
+    return this.upsertSchedule(config)
   }
 
   async getSchedule(id: string): Promise<ScheduleData | null> {

@@ -700,7 +700,7 @@ export class RedisAdapter implements Adapter {
     return recovered as number
   }
 
-  async createSchedule(config: ScheduleConfig): Promise<string> {
+  async upsertSchedule(config: ScheduleConfig): Promise<string> {
     const id = config.id ?? randomUUID()
     const now = Date.now()
     const scheduleKey = `${schedulesKey}::${id}`
@@ -730,6 +730,13 @@ export class RedisAdapter implements Adapter {
       .exec()
 
     return id
+  }
+
+  /**
+   * @deprecated Use `upsertSchedule` instead.
+   */
+  createSchedule(config: ScheduleConfig): Promise<string> {
+    return this.upsertSchedule(config)
   }
 
   async getSchedule(id: string): Promise<ScheduleData | null> {

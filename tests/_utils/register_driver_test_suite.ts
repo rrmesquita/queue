@@ -1067,10 +1067,10 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     })
   }
 
-  test('createSchedule should create a new schedule', async ({ assert }) => {
+  test('upsertSchedule should create a new schedule', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    const id = await adapter.createSchedule({
+    const id = await adapter.upsertSchedule({
       name: 'TestJob',
       payload: { foo: 'bar' },
       everyMs: 5000,
@@ -1087,10 +1087,10 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.equal(schedule!.status, 'active')
   })
 
-  test('createSchedule should use provided id', async ({ assert }) => {
+  test('upsertSchedule should use provided id', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    const id = await adapter.createSchedule({
+    const id = await adapter.upsertSchedule({
       id: 'my-custom-id',
       name: 'TestJob',
       payload: {},
@@ -1105,11 +1105,11 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.equal(schedule!.cronExpression, '0 0 * * *')
   })
 
-  test('createSchedule should upsert when id exists', async ({ assert }) => {
+  test('upsertSchedule should upsert when id exists', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
     // Create initial schedule
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'upsert-test',
       name: 'TestJob',
       payload: { version: 1 },
@@ -1118,7 +1118,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     })
 
     // Upsert with new values
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'upsert-test',
       name: 'TestJob',
       payload: { version: 2 },
@@ -1132,13 +1132,13 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.equal(schedule!.timezone, 'Europe/Paris')
   })
 
-  test('createSchedule upsert should clear stale scheduling fields', async ({ assert }) => {
+  test('upsertSchedule upsert should clear stale scheduling fields', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
     const from = new Date('2024-01-01T00:00:00.000Z')
     const to = new Date('2024-12-31T23:59:59.999Z')
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'upsert-stale-fields',
       name: 'TestJob',
       payload: { version: 1 },
@@ -1149,7 +1149,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
       limit: 10,
     })
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'upsert-stale-fields',
       name: 'TestJob',
       payload: { version: 2 },
@@ -1177,14 +1177,14 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
   test('listSchedules should return all schedules', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'list-test-1',
       name: 'Job1',
       payload: {},
       everyMs: 5000,
       timezone: 'UTC',
     })
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'list-test-2',
       name: 'Job2',
       payload: {},
@@ -1202,14 +1202,14 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
   test('listSchedules should filter by status', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'filter-active',
       name: 'Job1',
       payload: {},
       everyMs: 5000,
       timezone: 'UTC',
     })
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'filter-paused',
       name: 'Job2',
       payload: {},
@@ -1231,7 +1231,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
   test('updateSchedule should update status', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'update-status-test',
       name: 'TestJob',
       payload: {},
@@ -1248,7 +1248,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
   test('updateSchedule should update run metadata', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'update-meta-test',
       name: 'TestJob',
       payload: {},
@@ -1274,7 +1274,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
   test('deleteSchedule should remove schedule', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'delete-test',
       name: 'TestJob',
       payload: {},
@@ -1292,7 +1292,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     const adapter = await options.createAdapter()
 
     // Create schedule with nextRunAt in the future
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'future-schedule',
       name: 'TestJob',
       payload: {},
@@ -1311,7 +1311,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
   test('claimDueSchedule should claim a due schedule', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'due-schedule',
       name: 'DueJob',
       payload: { key: 'value' },
@@ -1335,7 +1335,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
   test('claimDueSchedule should update nextRunAt after claiming', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'claim-update-test',
       name: 'TestJob',
       payload: {},
@@ -1356,7 +1356,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
   test('claimDueSchedule should increment runCount', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'runcount-test',
       name: 'TestJob',
       payload: {},
@@ -1380,7 +1380,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
   test('claimDueSchedule should not claim paused schedules', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'paused-claim-test',
       name: 'TestJob',
       payload: {},
@@ -1400,7 +1400,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
   test('claimDueSchedule should not claim when limit reached', async ({ assert }) => {
     const adapter = await options.createAdapter()
 
-    await adapter.createSchedule({
+    await adapter.upsertSchedule({
       id: 'limit-claim-test',
       name: 'TestJob',
       payload: {},
@@ -1425,7 +1425,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
       const adapter2 = await options.createAdapter()
 
       // Create a single due schedule
-      await adapter1.createSchedule({
+      await adapter1.upsertSchedule({
         id: 'concurrent-claim-test',
         name: 'TestJob',
         payload: {},
@@ -1452,7 +1452,7 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
       const adapters = await Promise.all(Array.from({ length: 10 }, () => options.createAdapter()))
 
       // Create a single due schedule
-      await adapters[0].createSchedule({
+      await adapters[0].upsertSchedule({
         id: 'stress-test-schedule',
         name: 'StressJob',
         payload: { test: true },

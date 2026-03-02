@@ -105,10 +105,17 @@ export class SyncAdapter implements Adapter {
     return Promise.resolve()
   }
 
-  createSchedule(_config: ScheduleConfig): Promise<string> {
+  upsertSchedule(_config: ScheduleConfig): Promise<string> {
     // No-op: schedules don't make sense for sync adapter
     // Return a fake ID so code doesn't break in dev
     return Promise.resolve(`sync-schedule-${Date.now()}`)
+  }
+
+  /**
+   * @deprecated Use `upsertSchedule` instead.
+   */
+  createSchedule(config: ScheduleConfig): Promise<string> {
+    return this.upsertSchedule(config)
   }
 
   getSchedule(_id: string): Promise<ScheduleData | null> {

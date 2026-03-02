@@ -153,7 +153,7 @@ export class ScheduleBuilder implements PromiseLike<ScheduleResult> {
     }
 
     const adapter = QueueManager.use()
-    const scheduleId = await adapter.createSchedule(config)
+    const scheduleId = await adapter.upsertSchedule(config)
 
     // Calculate and set nextRunAt
     const nextRunAt = this.#calculateNextRunAt()

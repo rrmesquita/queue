@@ -1557,7 +1557,7 @@ test.group('Worker | Scheduler Integration', () => {
     })
 
     // Create a due schedule
-    await sharedAdapter.createSchedule({
+    await sharedAdapter.upsertSchedule({
       id: 'test-schedule',
       name: 'ScheduledJob',
       payload: { scheduled: true },
@@ -1605,7 +1605,7 @@ test.group('Worker | Scheduler Integration', () => {
     })
 
     // Create a schedule that's not due yet (future)
-    await sharedAdapter.createSchedule({
+    await sharedAdapter.upsertSchedule({
       id: 'future-schedule',
       name: 'ScheduledJob',
       payload: {},
@@ -1647,7 +1647,7 @@ test.group('Worker | Scheduler Integration', () => {
     })
 
     // Create a due schedule
-    await sharedAdapter.createSchedule({
+    await sharedAdapter.upsertSchedule({
       id: 'count-schedule',
       name: 'ScheduledJob',
       payload: {},
@@ -1701,7 +1701,7 @@ test.group('Worker | Scheduler Integration', () => {
     })
 
     // Create a due schedule
-    await sharedAdapter.createSchedule({
+    await sharedAdapter.upsertSchedule({
       id: 'queued-schedule',
       name: 'QueuedScheduledJob',
       payload: {},
@@ -1747,7 +1747,7 @@ test.group('Worker | Scheduler Integration', () => {
     })
 
     // Create a due schedule but pause it
-    await sharedAdapter.createSchedule({
+    await sharedAdapter.upsertSchedule({
       id: 'paused-schedule',
       name: 'ScheduledJob',
       payload: {},
@@ -1794,7 +1794,7 @@ test.group('Worker | Scheduler Integration', () => {
 
     // Create multiple due schedules
     for (const name of ['job-a', 'job-b', 'job-c']) {
-      await sharedAdapter.createSchedule({
+      await sharedAdapter.upsertSchedule({
         id: `schedule-${name}`,
         name: 'MultiScheduleJob',
         payload: { name },
@@ -1845,7 +1845,7 @@ test.group('Worker | Scheduler Integration', () => {
     })
 
     // Create a due schedule
-    await sharedAdapter.createSchedule({
+    await sharedAdapter.upsertSchedule({
       id: 'regular-schedule',
       name: 'RegularJob',
       payload: { type: 'scheduled' },

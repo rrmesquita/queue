@@ -198,6 +198,15 @@ export interface Adapter {
    * @param config - The schedule configuration
    * @returns The schedule ID
    */
+  upsertSchedule(config: ScheduleConfig): Promise<string>
+
+  /**
+   * Create or update a schedule.
+   *
+   * @deprecated Use `upsertSchedule` instead.
+   * @param config - The schedule configuration
+   * @returns The schedule ID
+   */
   createSchedule(config: ScheduleConfig): Promise<string>
 
   /**
