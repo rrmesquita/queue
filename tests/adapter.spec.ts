@@ -6,6 +6,7 @@ import { RedisAdapter } from '../src/drivers/redis_adapter.js'
 import { KnexAdapter } from '../src/drivers/knex_adapter.js'
 import { QueueSchemaService } from '../src/services/queue_schema.js'
 import { registerDriverTestSuite } from './_utils/register_driver_test_suite.js'
+import { withRedisWriteSpy } from './_utils/with_redis_write_spy.js'
 
 const KEY_PREFIX = 'boringnode::queue::test::'
 
@@ -65,26 +66,17 @@ test.group('Adapter | Redis', (group) => {
       })
     }
 
-    const stream = (connection as any).stream as { write: (...args: any[]) => any }
-    const originalWrite = stream.write.bind(stream)
-    let writes = 0
+    const { result: schedules, writes } = await withRedisWriteSpy({
+      connection,
+      run: () => adapter.listSchedules(),
+    })
 
-    stream.write = ((...args: any[]) => {
-      writes++
-      return originalWrite(...args)
-    }) as typeof stream.write
-
-    try {
-      const schedules = await adapter.listSchedules()
-      assert.lengthOf(schedules, 50)
-      assert.isAtMost(
-        writes,
-        4,
-        `Expected bounded write count with pipelining, got ${writes} writes for 50 schedules`
-      )
-    } finally {
-      stream.write = originalWrite
-    }
+    assert.lengthOf(schedules, 50)
+    assert.isAtMost(
+      writes,
+      4,
+      `Expected bounded write count with pipelining, got ${writes} writes for 50 schedules`
+    )
   })
 
   test('deleteSchedule should not leave ghost index under write-failure chaos', async ({ assert }) => {
@@ -99,23 +91,15 @@ test.group('Adapter | Redis', (group) => {
       timezone: 'UTC',
     })
 
-    const stream = (connection as any).stream as { write: (...args: any[]) => any }
-    const originalWrite = stream.write.bind(stream)
-    let writes = 0
-
-    stream.write = ((...args: any[]) => {
-      writes++
-      if (writes === 2) {
-        throw new Error('chaos: second network write blocked')
-      }
-      return originalWrite(...args)
-    }) as typeof stream.write
-
-    try {
-      await adapter.deleteSchedule(id)
-    } finally {
-      stream.write = originalWrite
-    }
+    const { writes } = await withRedisWriteSpy({
+      connection,
+      run: () => adapter.deleteSchedule(id),
+      onWrite: (writeCount) => {
+        if (writeCount === 2) {
+          throw new Error('chaos: second network write blocked')
+        }
+      },
+    })
 
     const scheduleExists = await connection.exists(`schedules::${id}`)
     const indexContains = await connection.sismember('schedules::index', id)
