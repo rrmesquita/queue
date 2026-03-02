@@ -449,13 +449,43 @@ export class Worker {
     const signal = AbortSignal.timeout(timeout)
     instance.$hydrate(payload, context, signal)
 
+    const { abortPromise, cleanupAbortListener } = this.#createTimeoutAbortRace(
+      signal,
+      instance.constructor.name,
+      timeout
+    )
+
+    try {
+      await Promise.race([instance.execute(), abortPromise])
+    } finally {
+      cleanupAbortListener()
+    }
+  }
+
+  #createTimeoutAbortRace(signal: AbortSignal, jobName: string, timeout: number) {
+    let abortHandler: (() => void) | undefined
+
     const abortPromise = new Promise<never>((_, reject) => {
-      signal.addEventListener('abort', () => {
-        reject(new errors.E_JOB_TIMEOUT([instance.constructor.name, timeout]))
-      })
+      abortHandler = () => {
+        reject(new errors.E_JOB_TIMEOUT([jobName, timeout]))
+      }
+
+      if (signal.aborted) {
+        abortHandler()
+        return
+      }
+
+      signal.addEventListener('abort', abortHandler, { once: true })
     })
 
-    await Promise.race([instance.execute(), abortPromise])
+    return {
+      abortPromise,
+      cleanupAbortListener: () => {
+        if (abortHandler) {
+          signal.removeEventListener('abort', abortHandler)
+        }
+      },
+    }
   }
 
   async #acquireNextJob(queues: string[]): Promise<{ job: AcquiredJob; queue: string } | null> {

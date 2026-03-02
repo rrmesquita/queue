@@ -461,6 +461,74 @@ test.group('Worker', () => {
     assert.isBelow(elapsed, 150, 'Job should be killed before completing')
   })
 
+  test('should remove timeout abort listener when job completes before timeout', async ({
+    assert,
+    cleanup,
+  }) => {
+    class FastJob extends Job {
+      static options = { timeout: 5_000 }
+
+      async execute() {}
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+    }
+
+    const controller = new AbortController()
+    const originalTimeout = AbortSignal.timeout
+    const originalAddEventListener = controller.signal.addEventListener.bind(controller.signal)
+    const originalRemoveEventListener = controller.signal.removeEventListener.bind(controller.signal)
+
+    let addedAbortListeners = 0
+    let removedAbortListeners = 0
+
+    controller.signal.addEventListener = ((type, listener, options) => {
+      if (type === 'abort') {
+        addedAbortListeners++
+      }
+
+      return originalAddEventListener(type, listener, options)
+    }) as AbortSignal['addEventListener']
+
+    controller.signal.removeEventListener = ((type, listener, options) => {
+      if (type === 'abort') {
+        removedAbortListeners++
+      }
+
+      return originalRemoveEventListener(type, listener, options)
+    }) as AbortSignal['removeEventListener']
+
+    AbortSignal.timeout = (() => controller.signal) as typeof AbortSignal.timeout
+
+    Locator.register('FastJob', FastJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      AbortSignal.timeout = originalTimeout
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'cleanup-timeout-listener-job',
+      name: 'FastJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed
+
+    assert.equal(addedAbortListeners, 1)
+    assert.equal(removedAbortListeners, 1)
+  })
+
   test('should retry timed out job when failOnTimeout is false', async ({ assert, cleanup }) => {
     let attempts = 0
 
