@@ -757,17 +757,36 @@ export class RedisAdapter implements Adapter {
 
   async listSchedules(options?: ScheduleListOptions): Promise<ScheduleData[]> {
     const ids = await this.#connection.smembers(schedulesIndexKey)
-    const schedules: ScheduleData[] = []
+    if (ids.length === 0) {
+      return []
+    }
+
+    const pipeline = this.#connection.pipeline()
 
     for (const id of ids) {
-      const schedule = await this.getSchedule(id)
-      if (schedule) {
-        // Filter by status if provided
-        if (options?.status && schedule.status !== options.status) {
-          continue
-        }
-        schedules.push(schedule)
+      pipeline.hgetall(`${schedulesKey}::${id}`)
+    }
+
+    const results = await pipeline.exec()
+    if (!results) {
+      return []
+    }
+
+    const schedules: ScheduleData[] = []
+
+    for (const [, data] of results) {
+      if (!data || Object.keys(data).length === 0) {
+        continue
       }
+
+      const schedule = this.#hashToScheduleData(data as Record<string, string>)
+
+      // Filter by status if provided
+      if (options?.status && schedule.status !== options.status) {
+        continue
+      }
+
+      schedules.push(schedule)
     }
 
     return schedules

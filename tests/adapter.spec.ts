@@ -49,6 +49,43 @@ test.group('Adapter | Redis', (group) => {
     test,
     createAdapter: () => new RedisAdapter(connection),
   })
+
+  test('listSchedules should use bounded network round-trips as schedule count grows', async ({
+    assert,
+  }) => {
+    const adapter = new RedisAdapter(connection)
+
+    for (let i = 0; i < 50; i++) {
+      await adapter.upsertSchedule({
+        id: `perf-schedule-${i}`,
+        name: 'PerfJob',
+        payload: { i },
+        everyMs: 60_000,
+        timezone: 'UTC',
+      })
+    }
+
+    const stream = (connection as any).stream as { write: (...args: any[]) => any }
+    const originalWrite = stream.write.bind(stream)
+    let writes = 0
+
+    stream.write = ((...args: any[]) => {
+      writes++
+      return originalWrite(...args)
+    }) as typeof stream.write
+
+    try {
+      const schedules = await adapter.listSchedules()
+      assert.lengthOf(schedules, 50)
+      assert.isAtMost(
+        writes,
+        4,
+        `Expected bounded write count with pipelining, got ${writes} writes for 50 schedules`
+      )
+    } finally {
+      stream.write = originalWrite
+    }
+  })
 })
 
 test.group('Adapter | Knex (SQLite)', (group) => {
