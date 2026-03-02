@@ -1,7 +1,7 @@
 import type { BackoffConfig, Duration } from '../types/main.js'
 import * as errors from '../exceptions.js'
 import { parse } from '../utils.js'
-import { RuntimeException } from '@poppinss/utils'
+import { RuntimeException } from '@poppinss/utils/exception'
 import { assertUnreachable } from '@poppinss/utils/assert'
 
 /**

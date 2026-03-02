@@ -1,4 +1,4 @@
-import { createError } from '@poppinss/utils'
+import { createError } from '@poppinss/utils/exception'
 
 export const E_INVALID_DURATION_EXPRESSION = createError(
   'Invalid duration expression: "%s"',
