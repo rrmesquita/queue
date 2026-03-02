@@ -146,6 +146,27 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.equal(record!.data.id, 'job-active')
   })
 
+  test('getJob should not return active job from another queue', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('queue-a', {
+      id: 'job-active-other-queue',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    await adapter.popFrom('queue-a')
+
+    const wrongQueueRecord = await adapter.getJob('job-active-other-queue', 'queue-b')
+    assert.isNull(wrongQueueRecord)
+
+    const rightQueueRecord = await adapter.getJob('job-active-other-queue', 'queue-a')
+    assert.isNotNull(rightQueueRecord)
+    assert.equal(rightQueueRecord!.status, 'active')
+  })
+
   test('getJob should return null for non-existent job', async ({ assert }) => {
     const adapter = await options.createAdapter()
     adapter.setWorkerId('worker-1')
@@ -590,6 +611,50 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.isNotNull(job1)
     assert.isNotNull(job2)
     assert.isNull(job3)
+  })
+
+  test('recoverStalledJobs should only recover jobs from the targeted queue', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+    adapter.setWorkerId('worker-1')
+
+    await adapter.pushOn('queue-a', {
+      id: 'job-stalled-a',
+      name: 'TestJob',
+      payload: null,
+      attempts: 0,
+    })
+    await adapter.pushOn('queue-b', {
+      id: 'job-stalled-b',
+      name: 'TestJob',
+      payload: null,
+      attempts: 0,
+    })
+
+    const jobA = await adapter.popFrom('queue-a')
+    const jobB = await adapter.popFrom('queue-b')
+    assert.isNotNull(jobA)
+    assert.isNotNull(jobB)
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const recoveredA = await adapter.recoverStalledJobs('queue-a', 10, 1)
+    assert.equal(recoveredA, 1)
+
+    const recoveredJobA = await adapter.popFrom('queue-a')
+    assert.isNotNull(recoveredJobA)
+    assert.equal(recoveredJobA!.id, 'job-stalled-a')
+
+    const queueBPending = await adapter.popFrom('queue-b')
+    assert.isNull(queueBPending)
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const recoveredB = await adapter.recoverStalledJobs('queue-b', 10, 1)
+    assert.equal(recoveredB, 1)
+
+    const recoveredJobB = await adapter.popFrom('queue-b')
+    assert.isNotNull(recoveredJobB)
+    assert.equal(recoveredJobB!.id, 'job-stalled-b')
   })
 
   test('completeJob with undefined retention should remove job (default behavior)', async ({

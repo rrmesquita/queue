@@ -13,6 +13,7 @@ import { parse } from '../../src/utils.js'
 interface ActiveJob {
   job: JobData
   acquiredAt: number
+  queue: string
 }
 
 interface DelayedJob {
@@ -119,7 +120,7 @@ export class MemoryAdapter implements Adapter {
     }
 
     const acquiredAt = Date.now()
-    this.#activeJobs.set(job.id, { job, acquiredAt })
+    this.#activeJobs.set(job.id, { job, acquiredAt, queue })
 
     return { ...job, acquiredAt }
   }
@@ -187,6 +188,10 @@ export class MemoryAdapter implements Adapter {
     let recovered = 0
 
     for (const [jobId, active] of this.#activeJobs.entries()) {
+      if (active.queue !== queue) {
+        continue
+      }
+
       const isStalled = now - active.acquiredAt > stalledThreshold
 
       if (!isStalled) {
@@ -219,7 +224,7 @@ export class MemoryAdapter implements Adapter {
 
   async getJob(jobId: string, queue: string): Promise<JobRecord | null> {
     const active = this.#activeJobs.get(jobId)
-    if (active) {
+    if (active && active.queue === queue) {
       return { status: 'active', data: active.job }
     }
 

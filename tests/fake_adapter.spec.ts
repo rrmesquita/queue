@@ -1,4 +1,3 @@
-import { setTimeout } from 'node:timers/promises'
 import { test } from '@japa/runner'
 import { Job } from '../src/job.js'
 import { fake } from '../src/drivers/fake_adapter.js'
@@ -126,71 +125,4 @@ test.group('FakeAdapter', () => {
     await adapter.destroy()
   })
 
-  test('should recover stalled jobs only for targeted queue', async ({ assert }) => {
-    const adapter = fake()()
-
-    await adapter.pushOn('queue-a', {
-      id: 'job-a',
-      name: 'JobA',
-      payload: null,
-      attempts: 0,
-    })
-
-    await adapter.pushOn('queue-b', {
-      id: 'job-b',
-      name: 'JobB',
-      payload: null,
-      attempts: 0,
-    })
-
-    const jobA = await adapter.popFrom('queue-a')
-    const jobB = await adapter.popFrom('queue-b')
-
-    assert.isNotNull(jobA)
-    assert.isNotNull(jobB)
-
-    await setTimeout(2)
-
-    const recoveredA = await adapter.recoverStalledJobs('queue-a', 0, 1)
-    assert.equal(recoveredA, 1)
-
-    const recoveredJobA = await adapter.popFrom('queue-a')
-    assert.equal(recoveredJobA?.id, 'job-a')
-
-    const noneInB = await adapter.popFrom('queue-b')
-    assert.isNull(noneInB)
-
-    await setTimeout(2)
-
-    const recoveredB = await adapter.recoverStalledJobs('queue-b', 0, 1)
-    assert.equal(recoveredB, 1)
-
-    const recoveredJobB = await adapter.popFrom('queue-b')
-    assert.equal(recoveredJobB?.id, 'job-b')
-
-    await adapter.destroy()
-  })
-
-  test('should ignore active jobs from other queues in getJob', async ({ assert }) => {
-    const adapter = fake()()
-
-    await adapter.pushOn('queue-a', {
-      id: 'job-a',
-      name: 'JobA',
-      payload: null,
-      attempts: 0,
-    })
-
-    const jobA = await adapter.popFrom('queue-a')
-    assert.isNotNull(jobA)
-
-    const wrongQueue = await adapter.getJob('job-a', 'queue-b')
-    assert.isNull(wrongQueue)
-
-    const correctQueue = await adapter.getJob('job-a', 'queue-a')
-    assert.isNotNull(correctQueue)
-    assert.equal(correctQueue?.status, 'active')
-
-    await adapter.destroy()
-  })
 })
