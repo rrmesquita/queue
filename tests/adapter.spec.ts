@@ -7,6 +7,7 @@ import { KnexAdapter } from '../src/drivers/knex_adapter.js'
 import { QueueSchemaService } from '../src/services/queue_schema.js'
 import { registerDriverTestSuite } from './_utils/register_driver_test_suite.js'
 import { withRedisWriteSpy } from './_utils/with_redis_write_spy.js'
+import { withKnexQuerySpy } from './_utils/with_knex_query_spy.js'
 
 const KEY_PREFIX = 'boringnode::queue::test::'
 
@@ -146,6 +147,67 @@ test.group('Adapter | Knex (SQLite)', (group) => {
       return adapter
     },
   })
+
+  test('listSchedules should execute a single SQL query in Knex adapter', async ({ assert }) => {
+    const knexAdapter = new KnexAdapter({ connection })
+
+    for (let i = 0; i < 20; i++) {
+      await knexAdapter.upsertSchedule({
+        id: `knex-list-${i}`,
+        name: 'KnexPerfJob',
+        payload: { i },
+        everyMs: 60_000,
+        timezone: 'UTC',
+      })
+    }
+
+    const { result: schedules, queries } = await withKnexQuerySpy({
+      connection,
+      run: () => knexAdapter.listSchedules(),
+    })
+    assert.lengthOf(schedules, 20)
+
+    const scheduleSelectQueries = queries.filter(
+      (sql) => sql.includes('select') && sql.includes('queue_schedules')
+    )
+
+    assert.lengthOf(
+      scheduleSelectQueries,
+      1,
+      `Expected a single schedule SELECT query, got ${scheduleSelectQueries.length}`
+    )
+  })
+
+  test('deleteSchedule should execute a single SQL query in Knex adapter', async ({ assert }) => {
+    const knexAdapter = new KnexAdapter({ connection })
+    const id = 'knex-delete-atomicity'
+
+    await knexAdapter.upsertSchedule({
+      id,
+      name: 'KnexDeleteJob',
+      payload: {},
+      everyMs: 60_000,
+      timezone: 'UTC',
+    })
+
+    const { queries } = await withKnexQuerySpy({
+      connection,
+      run: () => knexAdapter.deleteSchedule(id),
+    })
+
+    const schedule = await knexAdapter.getSchedule(id)
+    assert.isNull(schedule)
+
+    const scheduleDeleteQueries = queries.filter(
+      (sql) => sql.includes('delete') && sql.includes('queue_schedules')
+    )
+
+    assert.lengthOf(
+      scheduleDeleteQueries,
+      1,
+      `Expected a single schedule DELETE query, got ${scheduleDeleteQueries.length}`
+    )
+  })
 })
 
 test.group('Adapter | Knex (PostgreSQL)', (group) => {
@@ -191,5 +253,70 @@ test.group('Adapter | Knex (PostgreSQL)', (group) => {
       adapter = new KnexAdapter({ connection, tableName, schedulesTableName })
       return adapter
     },
+  })
+
+  test('listSchedules should execute a single SQL query in Knex PostgreSQL adapter', async ({
+    assert,
+  }) => {
+    const knexAdapter = new KnexAdapter({ connection, tableName, schedulesTableName })
+
+    for (let i = 0; i < 20; i++) {
+      await knexAdapter.upsertSchedule({
+        id: `pg-list-${i}`,
+        name: 'PgPerfJob',
+        payload: { i },
+        everyMs: 60_000,
+        timezone: 'UTC',
+      })
+    }
+
+    const { result: schedules, queries } = await withKnexQuerySpy({
+      connection,
+      run: () => knexAdapter.listSchedules(),
+    })
+    assert.lengthOf(schedules, 20)
+
+    const scheduleSelectQueries = queries.filter(
+      (sql) => sql.includes('select') && sql.includes(schedulesTableName)
+    )
+
+    assert.lengthOf(
+      scheduleSelectQueries,
+      1,
+      `Expected a single schedule SELECT query, got ${scheduleSelectQueries.length}`
+    )
+  })
+
+  test('deleteSchedule should execute a single SQL query in Knex PostgreSQL adapter', async ({
+    assert,
+  }) => {
+    const knexAdapter = new KnexAdapter({ connection, tableName, schedulesTableName })
+    const id = 'pg-delete-atomicity'
+
+    await knexAdapter.upsertSchedule({
+      id,
+      name: 'PgDeleteJob',
+      payload: {},
+      everyMs: 60_000,
+      timezone: 'UTC',
+    })
+
+    const { queries } = await withKnexQuerySpy({
+      connection,
+      run: () => knexAdapter.deleteSchedule(id),
+    })
+
+    const schedule = await knexAdapter.getSchedule(id)
+    assert.isNull(schedule)
+
+    const scheduleDeleteQueries = queries.filter(
+      (sql) => sql.includes('delete') && sql.includes(schedulesTableName)
+    )
+
+    assert.lengthOf(
+      scheduleDeleteQueries,
+      1,
+      `Expected a single schedule DELETE query, got ${scheduleDeleteQueries.length}`
+    )
   })
 })
