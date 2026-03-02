@@ -704,6 +704,11 @@ export class RedisAdapter implements Adapter {
     const id = config.id ?? randomUUID()
     const now = Date.now()
     const scheduleKey = `${schedulesKey}::${id}`
+    const [existingRunCount, existingCreatedAt] = await this.#connection.hmget(
+      scheduleKey,
+      'run_count',
+      'created_at'
+    )
 
     const scheduleData: Record<string, string> = {
       id,
@@ -711,8 +716,8 @@ export class RedisAdapter implements Adapter {
       payload: JSON.stringify(config.payload),
       timezone: config.timezone,
       status: 'active',
-      run_count: '0',
-      created_at: now.toString(),
+      run_count: existingRunCount ?? '0',
+      created_at: existingCreatedAt ?? now.toString(),
     }
 
     if (config.cronExpression !== undefined) scheduleData.cron_expression = config.cronExpression

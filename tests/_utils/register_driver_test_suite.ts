@@ -1167,6 +1167,39 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.isNull(schedule!.limit)
   })
 
+  test('upsertSchedule should preserve runtime runCount when id exists', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    await adapter.upsertSchedule({
+      id: 'upsert-preserve-run-count',
+      name: 'TestJob',
+      payload: { version: 1 },
+      everyMs: 5000,
+      timezone: 'UTC',
+    })
+
+    await adapter.updateSchedule('upsert-preserve-run-count', {
+      runCount: 3,
+      lastRunAt: new Date(),
+      nextRunAt: new Date(Date.now() + 60_000),
+    })
+
+    await adapter.upsertSchedule({
+      id: 'upsert-preserve-run-count',
+      name: 'TestJob',
+      payload: { version: 2 },
+      cronExpression: '*/5 * * * *',
+      timezone: 'Europe/Paris',
+    })
+
+    const schedule = await adapter.getSchedule('upsert-preserve-run-count')
+    assert.isNotNull(schedule)
+    assert.deepEqual(schedule!.payload, { version: 2 })
+    assert.equal(schedule!.cronExpression, '*/5 * * * *')
+    assert.isNull(schedule!.everyMs)
+    assert.equal(schedule!.runCount, 3)
+  })
+
   test('getSchedule should return null for non-existent schedule', async ({ assert }) => {
     const adapter = await options.createAdapter()
 

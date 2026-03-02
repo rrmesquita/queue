@@ -345,6 +345,7 @@ export class FakeAdapter implements Adapter {
 
   async upsertSchedule(config: ScheduleConfig): Promise<string> {
     const id = config.id ?? randomUUID()
+    const existing = this.#schedules.get(id)
     const now = new Date()
 
     const schedule: ScheduleData = {
@@ -357,11 +358,11 @@ export class FakeAdapter implements Adapter {
       from: config.from ?? null,
       to: config.to ?? null,
       limit: config.limit ?? null,
-      runCount: 0,
-      nextRunAt: null, // Will be calculated by the caller
-      lastRunAt: null,
+      runCount: existing?.runCount ?? 0,
+      nextRunAt: existing?.nextRunAt ?? null, // Will be (re)calculated by the caller
+      lastRunAt: existing?.lastRunAt ?? null,
       status: 'active',
-      createdAt: now,
+      createdAt: existing?.createdAt ?? now,
     }
 
     this.#schedules.set(id, schedule)
