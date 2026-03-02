@@ -441,7 +441,7 @@ export class Worker {
     context: JobContext,
     timeout?: number
   ): Promise<void> {
-    if (!timeout) {
+    if (timeout === undefined) {
       instance.$hydrate(payload, context)
       return instance.execute()
     }

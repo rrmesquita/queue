@@ -461,6 +461,55 @@ test.group('Worker', () => {
     assert.isBelow(elapsed, 150, 'Job should be killed before completing')
   })
 
+  test('should apply timeout when timeout is set to 0', async ({ assert, cleanup }) => {
+    assert.plan(2)
+
+    class ZeroTimeoutJob extends Job {
+      static options = { timeout: 0 }
+
+      async execute() {
+        await setTimeout(200)
+      }
+
+      async failed(error: Error) {
+        assert.instanceOf(error, errors.E_JOB_TIMEOUT)
+      }
+    }
+
+    const sharedAdapter = memory()()
+
+    const localConfig = {
+      default: 'memory',
+      adapters: { memory: () => sharedAdapter },
+    }
+
+    Locator.register('ZeroTimeoutJob', ZeroTimeoutJob)
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      Locator.clear()
+      await worker.stop()
+    })
+
+    await sharedAdapter.push({
+      id: 'timeout-zero-job',
+      name: 'ZeroTimeoutJob',
+      payload: {},
+      attempts: 0,
+      priority: 0,
+    })
+
+    const startTime = Date.now()
+
+    await worker.processCycle(['default']) // started
+    await worker.processCycle(['default']) // completed (timeout)
+
+    const elapsed = Date.now() - startTime
+
+    assert.isBelow(elapsed, 150, 'Job should be killed before completing')
+  })
+
   test('should remove timeout abort listener when job completes before timeout', async ({
     assert,
     cleanup,
