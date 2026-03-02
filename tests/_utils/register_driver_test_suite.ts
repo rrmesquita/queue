@@ -1132,6 +1132,41 @@ export function registerDriverTestSuite(options: DriverTestSuiteOptions) {
     assert.equal(schedule!.timezone, 'Europe/Paris')
   })
 
+  test('createSchedule upsert should clear stale scheduling fields', async ({ assert }) => {
+    const adapter = await options.createAdapter()
+
+    const from = new Date('2024-01-01T00:00:00.000Z')
+    const to = new Date('2024-12-31T23:59:59.999Z')
+
+    await adapter.createSchedule({
+      id: 'upsert-stale-fields',
+      name: 'TestJob',
+      payload: { version: 1 },
+      cronExpression: '0 0 * * *',
+      timezone: 'UTC',
+      from,
+      to,
+      limit: 10,
+    })
+
+    await adapter.createSchedule({
+      id: 'upsert-stale-fields',
+      name: 'TestJob',
+      payload: { version: 2 },
+      everyMs: 30000,
+      timezone: 'UTC',
+    })
+
+    const schedule = await adapter.getSchedule('upsert-stale-fields')
+    assert.isNotNull(schedule)
+    assert.deepEqual(schedule!.payload, { version: 2 })
+    assert.equal(schedule!.everyMs, 30000)
+    assert.isNull(schedule!.cronExpression)
+    assert.isNull(schedule!.from)
+    assert.isNull(schedule!.to)
+    assert.isNull(schedule!.limit)
+  })
+
   test('getSchedule should return null for non-existent schedule', async ({ assert }) => {
     const adapter = await options.createAdapter()
 

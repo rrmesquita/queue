@@ -703,6 +703,7 @@ export class RedisAdapter implements Adapter {
   async createSchedule(config: ScheduleConfig): Promise<string> {
     const id = config.id ?? randomUUID()
     const now = Date.now()
+    const scheduleKey = `${schedulesKey}::${id}`
 
     const scheduleData: Record<string, string> = {
       id,
@@ -714,18 +715,19 @@ export class RedisAdapter implements Adapter {
       created_at: now.toString(),
     }
 
-    if (config.cronExpression) scheduleData.cron_expression = config.cronExpression
-    if (config.everyMs) scheduleData.every_ms = config.everyMs.toString()
-    if (config.from) scheduleData.from_date = config.from.getTime().toString()
-    if (config.to) scheduleData.to_date = config.to.getTime().toString()
-    if (config.limit) scheduleData.run_limit = config.limit.toString()
+    if (config.cronExpression !== undefined) scheduleData.cron_expression = config.cronExpression
+    if (config.everyMs !== undefined) scheduleData.every_ms = config.everyMs.toString()
+    if (config.from !== undefined) scheduleData.from_date = config.from.getTime().toString()
+    if (config.to !== undefined) scheduleData.to_date = config.to.getTime().toString()
+    if (config.limit !== undefined) scheduleData.run_limit = config.limit.toString()
 
-    // Store schedule as hash
-    const scheduleKey = `${schedulesKey}::${id}`
-    await this.#connection.hset(scheduleKey, scheduleData)
-
-    // Add to index set for listing
-    await this.#connection.sadd(schedulesIndexKey, id)
+    // Upsert schedule and clear stale optional fields from previous config.
+    await this.#connection
+      .multi()
+      .hdel(scheduleKey, 'cron_expression', 'every_ms', 'from_date', 'to_date', 'run_limit')
+      .hset(scheduleKey, scheduleData)
+      .sadd(schedulesIndexKey, id)
+      .exec()
 
     return id
   }
