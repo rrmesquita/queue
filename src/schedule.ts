@@ -36,7 +36,7 @@ export class Schedule {
     return this.#data.name
   }
 
-  get payload(): any {
+  get payload(): unknown {
     return this.#data.payload
   }
 

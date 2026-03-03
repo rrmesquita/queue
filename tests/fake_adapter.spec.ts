@@ -75,7 +75,11 @@ test.group('FakeAdapter', () => {
     assert.isDefined(matcherRecord)
 
     const payloadRecord = adapter.findPushed('SendEmailJob', {
-      payload: (payload) => payload?.to === 'admin@example.com',
+      payload: (payload) =>
+        typeof payload === 'object' &&
+        payload !== null &&
+        'to' in payload &&
+        payload.to === 'admin@example.com',
     })
     assert.isDefined(payloadRecord)
 

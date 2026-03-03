@@ -37,7 +37,7 @@ export interface FakeJobRecord {
 
 export type FakeJobMatcher = string | JobClass | ((job: JobData) => boolean)
 export type FakePayloadMatcher =
-  | ((payload: any) => boolean)
+  | ((payload: unknown) => boolean)
   | object
   | string
   | number

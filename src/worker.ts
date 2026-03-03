@@ -394,7 +394,7 @@ export class Worker {
     options: JobOptions
     timeout: number | undefined
     context: JobContext
-    payload: any
+    payload: unknown
   }> {
     try {
       const JobClass = Locator.getOrThrow(job.name)
@@ -437,7 +437,7 @@ export class Worker {
 
   async #executeWithTimeout(
     instance: Job,
-    payload: any,
+    payload: unknown,
     context: JobContext,
     timeout?: number
   ): Promise<void> {

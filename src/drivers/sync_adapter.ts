@@ -142,7 +142,7 @@ export class SyncAdapter implements Adapter {
     return Promise.resolve(null)
   }
 
-  async #execute(jobName: string, payload: any, queue: string = 'default'): Promise<any> {
+  async #execute(jobName: string, payload: unknown, queue: string = 'default'): Promise<void> {
     const JobClass = Locator.get(jobName)
 
     if (!JobClass) {

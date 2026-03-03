@@ -216,10 +216,10 @@ export class JobDispatcher<T> {
    * @param onRejected - Error callback
    * @returns Promise resolving to the DispatchResult
    */
-  then(
-    onFulfilled?: (value: DispatchResult) => any,
-    onRejected?: (reason: any) => any
-  ): Promise<any> {
+  then<TResult1 = DispatchResult, TResult2 = never>(
+    onFulfilled?: ((value: DispatchResult) => TResult1 | PromiseLike<TResult1>) | null,
+    onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+  ): Promise<TResult1 | TResult2> {
     return this.run().then(onFulfilled, onRejected)
   }
 

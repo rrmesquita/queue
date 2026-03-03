@@ -172,10 +172,10 @@ export class JobBatchDispatcher<T> {
    * @param onRejected - Error callback
    * @returns Promise resolving to the DispatchManyResult
    */
-  then(
-    onFulfilled?: (value: DispatchManyResult) => any,
-    onRejected?: (reason: any) => any
-  ): Promise<any> {
+  then<TResult1 = DispatchManyResult, TResult2 = never>(
+    onFulfilled?: ((value: DispatchManyResult) => TResult1 | PromiseLike<TResult1>) | null,
+    onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+  ): Promise<TResult1 | TResult2> {
     return this.run().then(onFulfilled, onRejected)
   }
 

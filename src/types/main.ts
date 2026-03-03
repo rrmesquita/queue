@@ -257,7 +257,7 @@ export interface JobContext {
  * The constructor accepts any arguments for dependency injection.
  * Payload and context are provided separately via `$hydrate()`.
  */
-export type JobClass<T extends Job = Job> = (new (...args: any[]) => T) & {
+export type JobClass<T extends Job = Job> = (new (...args: unknown[]) => T) & {
   options?: JobOptions
 }
 
@@ -303,7 +303,7 @@ export interface BackoffConfig {
 
 export interface QueueConfig {
   adapter?: string
-  retry?: any
+  retry?: RetryConfig
   defaultJobOptions?: JobOptions
 }
 
@@ -364,8 +364,8 @@ export interface WorkerConfig {
 }
 
 export type WorkerCycle =
-  | { type: 'started'; queue: string; job: any }
-  | { type: 'completed'; queue: string; job: any }
+  | { type: 'started'; queue: string; job: JobData }
+  | { type: 'completed'; queue: string; job: JobData }
   | { type: 'idle'; suggestedDelay: Duration }
   | { type: 'error'; error: Error; suggestedDelay: Duration }
 

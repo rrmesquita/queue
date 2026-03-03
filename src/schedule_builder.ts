@@ -22,9 +22,9 @@ import * as errors from './exceptions.js'
  *   .run()
  * ```
  */
-export class ScheduleBuilder implements PromiseLike<ScheduleResult> {
+export class ScheduleBuilder<TPayload = unknown> implements PromiseLike<ScheduleResult> {
   #name: string
-  #payload: any
+  #payload: TPayload
   #id?: string
   #cronExpression?: string
   #everyMs?: number
@@ -33,7 +33,7 @@ export class ScheduleBuilder implements PromiseLike<ScheduleResult> {
   #to?: Date
   #limit?: number
 
-  constructor(name: string, payload: any) {
+  constructor(name: string, payload: TPayload) {
     this.#name = name
     this.#payload = payload
   }
@@ -202,7 +202,7 @@ export class ScheduleBuilder implements PromiseLike<ScheduleResult> {
    */
   then<TResult1 = ScheduleResult, TResult2 = never>(
     onfulfilled?: ((value: ScheduleResult) => TResult1 | PromiseLike<TResult1>) | null,
-    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
   ): Promise<TResult1 | TResult2> {
     return this.run().then(onfulfilled, onrejected)
   }

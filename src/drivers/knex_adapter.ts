@@ -22,6 +22,24 @@ export interface KnexAdapterOptions {
 }
 
 type KnexConfig = Knex | Knex.Config
+type DbRow = Record<string, unknown>
+
+interface ScheduleRow extends DbRow {
+  id: string
+  name: string
+  payload: unknown
+  cron_expression: string | null
+  every_ms: number | string | null
+  timezone: string | null
+  from_date: Date | string | number | null
+  to_date: Date | string | number | null
+  run_limit: number | string | null
+  run_count: number | string | null
+  next_run_at: Date | string | number | null
+  last_run_at: Date | string | number | null
+  status: string
+  created_at: Date | string | number | null
+}
 
 /**
  * Create a new Knex adapter factory.
@@ -516,9 +534,9 @@ export class KnexAdapter implements Adapter {
   }
 
   async getSchedule(id: string): Promise<ScheduleData | null> {
-    const row = await this.#connection(this.#schedulesTable)
+    const row = (await this.#connection(this.#schedulesTable)
       .where('id', id)
-      .first()
+      .first()) as ScheduleRow | undefined
     if (!row) return null
 
     return this.#rowToScheduleData(row)
@@ -531,15 +549,15 @@ export class KnexAdapter implements Adapter {
       query = query.where('status', options.status)
     }
 
-    const rows = await query
-    return rows.map((row: any) => this.#rowToScheduleData(row))
+    const rows = (await query) as ScheduleRow[]
+    return rows.map((row) => this.#rowToScheduleData(row))
   }
 
   async updateSchedule(
     id: string,
     updates: Partial<Pick<ScheduleData, 'status' | 'nextRunAt' | 'lastRunAt' | 'runCount'>>
   ): Promise<void> {
-    const data: Record<string, any> = {}
+    const data: Record<string, unknown> = {}
 
     if (updates.status !== undefined) data.status = updates.status
     if (updates.nextRunAt !== undefined) data.next_run_at = updates.nextRunAt
@@ -581,12 +599,12 @@ export class KnexAdapter implements Adapter {
         query = query.forUpdate().skipLocked()
       }
 
-      const row = await query.first()
+      const row = (await query.first()) as ScheduleRow | undefined
       if (!row) return null
 
       // Calculate next run time
       let nextRunAt: Date | null = null
-      const newRunCount = (row.run_count ?? 0) + 1
+      const newRunCount = Number(row.run_count ?? 0) + 1
 
       if (row.every_ms) {
         nextRunAt = new Date(now.getTime() + Number(row.every_ms))
@@ -601,7 +619,7 @@ export class KnexAdapter implements Adapter {
       }
 
       // Check if limit will be reached
-      if (row.run_limit !== null && newRunCount >= row.run_limit) {
+      if (row.run_limit !== null && newRunCount >= Number(row.run_limit)) {
         nextRunAt = null
       }
 
@@ -624,7 +642,7 @@ export class KnexAdapter implements Adapter {
     })
   }
 
-  #rowToScheduleData(row: any): ScheduleData {
+  #rowToScheduleData(row: ScheduleRow): ScheduleData {
     return {
       id: row.id,
       name: row.name,
@@ -638,7 +656,7 @@ export class KnexAdapter implements Adapter {
       runCount: Number(row.run_count ?? 0),
       nextRunAt: row.next_run_at ? new Date(row.next_run_at) : null,
       lastRunAt: row.last_run_at ? new Date(row.last_run_at) : null,
-      status: row.status === 'cancelled' ? 'paused' : row.status,
+      status: row.status === 'paused' || row.status === 'cancelled' ? 'paused' : 'active',
       createdAt: row.created_at ? new Date(row.created_at) : new Date(),
     }
   }
