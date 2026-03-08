@@ -171,7 +171,7 @@ export abstract class Job<Payload = any> {
    * ```
    */
   static dispatch<T extends Job>(
-    this: new (...args: unknown[]) => T,
+    this: abstract new (...args: any[]) => T,
     payload: T extends Job<infer P> ? P : never
   ): JobDispatcher<T extends Job<infer P> ? P : never> {
     const jobClass = this as unknown as { options?: JobOptions; name: string }
@@ -223,7 +223,7 @@ export abstract class Job<Payload = any> {
    * ```
    */
   static dispatchMany<T extends Job>(
-    this: new (...args: unknown[]) => T,
+    this: abstract new (...args: any[]) => T,
     payloads: (T extends Job<infer P> ? P : never)[]
   ): JobBatchDispatcher<T extends Job<infer P> ? P : never> {
     const jobClass = this as unknown as { options?: JobOptions; name: string }
@@ -273,7 +273,7 @@ export abstract class Job<Payload = any> {
    * ```
    */
   static schedule<T extends Job>(
-    this: new (...args: unknown[]) => T,
+    this: abstract new (...args: any[]) => T,
     payload: T extends Job<infer P> ? P : never
   ): ScheduleBuilder<T extends Job<infer P> ? P : never> {
     const jobClass = this as unknown as { options?: JobOptions; name: string }
