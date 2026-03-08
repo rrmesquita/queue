@@ -87,12 +87,7 @@ class QueueManagerSingleton {
 
     this.#validateConfig(config)
 
-    for (const [name, adapter] of this.#adapterInstances) {
-      debug('destroying adapter "%s" before reinitialization', name)
-      await adapter.destroy()
-    }
-
-    this.#adapterInstances.clear()
+    await this.#cleanupBeforeReinitialization()
 
     this.#defaultAdapter = config.default
     this.#adapters = config.adapters
@@ -114,6 +109,47 @@ class QueueManagerSingleton {
     this.#initialized = true
 
     return this
+  }
+
+  /**
+   * Destroy any materialized adapters from the current configuration before
+   * replacing it with a new one.
+   */
+  async #cleanupBeforeReinitialization() {
+    const destroyedAdapters = new Set<Adapter>()
+
+    await this.#destroyAdapters(this.#adapterInstances, destroyedAdapters)
+
+    if (this.#fakeState) {
+      await this.#destroyAdapter('fake', this.#fakeState.fakeAdapter, destroyedAdapters)
+      await this.#destroyAdapters(this.#fakeState.adapterInstances, destroyedAdapters)
+      this.#fakeState = undefined
+    }
+
+    this.#adapterInstances.clear()
+  }
+
+  /**
+   * Destroy a collection of adapters while avoiding double-destroying the same
+   * instance through multiple references.
+   */
+  async #destroyAdapters(adapters: Iterable<[string, Adapter]>, destroyedAdapters: Set<Adapter>) {
+    for (const [name, adapter] of adapters) {
+      await this.#destroyAdapter(name, adapter, destroyedAdapters)
+    }
+  }
+
+  /**
+   * Destroy a single adapter once for the current cleanup pass.
+   */
+  async #destroyAdapter(name: string, adapter: Adapter, destroyedAdapters: Set<Adapter>) {
+    if (destroyedAdapters.has(adapter)) {
+      return
+    }
+
+    destroyedAdapters.add(adapter)
+    debug('destroying adapter "%s" before reinitialization', name)
+    await adapter.destroy()
   }
 
   /**

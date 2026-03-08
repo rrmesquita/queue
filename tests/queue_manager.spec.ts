@@ -238,4 +238,69 @@ test.group('QueueManager', () => {
     assert.strictEqual(secondAdapter, adapters[1])
     assert.equal(destroyedCount, 1)
   })
+
+  test('should reset fake state when reinitializing', async ({ assert, cleanup }) => {
+    type LabeledAdapter = Adapter & { label: string }
+
+    const createAdapter = (label: string): LabeledAdapter => ({
+      label,
+      setWorkerId() {},
+      pop: async () => null,
+      popFrom: async () => null,
+      recoverStalledJobs: async () => 0,
+      completeJob: async () => {},
+      failJob: async () => {},
+      retryJob: async () => {},
+      getJob: async () => null,
+      push: async () => {},
+      pushOn: async () => {},
+      pushLater: async () => {},
+      pushLaterOn: async () => {},
+      pushMany: async () => {},
+      pushManyOn: async () => {},
+      size: async () => 0,
+      sizeOf: async () => 0,
+      destroy: async () => {},
+      upsertSchedule: async () => 'schedule-id',
+      createSchedule: async () => 'schedule-id',
+      getSchedule: async () => null,
+      listSchedules: async () => [],
+      updateSchedule: async () => {},
+      deleteSchedule: async () => {},
+      claimDueSchedule: async () => null,
+    })
+
+    cleanup(async () => {
+      await QueueManager.destroy()
+    })
+
+    await QueueManager.init({
+      default: 'custom',
+      adapters: {
+        custom: () => createAdapter('first'),
+      },
+    })
+
+    const firstAdapter = QueueManager.use() as LabeledAdapter
+    const firstFakeAdapter = QueueManager.fake()
+
+    await QueueManager.init({
+      default: 'custom',
+      adapters: {
+        custom: () => createAdapter('second'),
+      },
+    })
+
+    const secondFakeAdapter = QueueManager.fake()
+
+    assert.notStrictEqual(secondFakeAdapter, firstFakeAdapter)
+    assert.strictEqual(QueueManager.use(), secondFakeAdapter)
+
+    QueueManager.restore()
+
+    const restoredAdapter = QueueManager.use() as LabeledAdapter
+
+    assert.notStrictEqual(restoredAdapter, firstAdapter)
+    assert.equal(restoredAdapter.label, 'second')
+  })
 })
