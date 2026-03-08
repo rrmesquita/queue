@@ -1,17 +1,36 @@
 import { test } from '@japa/runner'
 import { setTimeout } from 'node:timers/promises'
 import { Worker } from '../src/worker.js'
-import { memory } from './_mocks/memory_adapter.js'
+import { MemoryAdapter, memory } from './_mocks/memory_adapter.js'
 import { ChaosAdapter } from './_mocks/chaos_adapter.js'
 import type { QueueManagerConfig } from '../src/types/main.js'
 import { Locator } from '../src/locator.js'
 import { Job } from '../src/job.js'
+import { QueueManager } from '../src/queue_manager.js'
 import * as errors from '../src/exceptions.js'
 
 const config = {
   default: 'memory',
   adapters: { memory: memory() },
 } satisfies QueueManagerConfig
+
+class DestroyAwareMemoryAdapter extends MemoryAdapter {
+  destroyed = false
+
+  override async pushOn(...args: Parameters<MemoryAdapter['pushOn']>) {
+    if (this.destroyed) {
+      throw new Error('adapter is destroyed')
+    }
+
+    return super.pushOn(...args)
+  }
+
+  override destroy(): Promise<void> {
+    this.destroyed = true
+
+    return super.destroy()
+  }
+}
 
 test.group('Worker', () => {
   test('should create a worker with a unique worker ID', ({ assert, cleanup }) => {
@@ -771,6 +790,50 @@ test.group('Worker', () => {
 
     // Job should have completed before stop() returned
     assert.isTrue(jobCompleted, 'Job should have completed before worker stopped')
+  })
+
+  test('should not destroy the shared adapter when stopping', async ({ assert, cleanup }) => {
+    const adapters: DestroyAwareMemoryAdapter[] = []
+
+    const localConfig = {
+      default: 'memory',
+      adapters: {
+        memory: () => {
+          const adapter = new DestroyAwareMemoryAdapter()
+          adapters.push(adapter)
+          return adapter
+        },
+      },
+    }
+
+    const worker = new Worker(localConfig)
+
+    cleanup(async () => {
+      await QueueManager.destroy()
+    })
+
+    await worker.init()
+
+    const firstAdapter = QueueManager.use()
+
+    await worker.stop()
+
+    const secondAdapter = QueueManager.use()
+
+    assert.strictEqual(secondAdapter, firstAdapter)
+    assert.equal(adapters.length, 1)
+    assert.isFalse(adapters[0].destroyed)
+
+    await secondAdapter.pushOn('default', {
+      id: 'post-stop-job',
+      name: 'TestJob',
+      payload: {},
+      attempts: 0,
+    })
+
+    await QueueManager.destroy()
+
+    assert.isTrue(adapters[0].destroyed)
   })
 
   test('should handle job that fails permanently', async ({ assert, cleanup }) => {

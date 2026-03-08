@@ -169,7 +169,8 @@ export class Worker {
   /**
    * Stop the worker gracefully.
    *
-   * Waits for all running jobs to complete before shutting down.
+   * Waits for all running jobs to complete before stopping job consumption.
+   * Adapter cleanup remains the responsibility of `QueueManager.destroy()`.
    * Called automatically on SIGINT/SIGTERM if gracefulShutdown is enabled.
    */
   async stop() {
@@ -180,10 +181,6 @@ export class Worker {
     if (this.#pool) {
       debug('worker %s: waiting for %d running jobs to complete', this.#id, this.#pool.size)
       await this.#pool.drain()
-    }
-
-    if (this.#adapter) {
-      await this.#adapter.destroy()
     }
 
     this.#removeShutdownHandlers()
