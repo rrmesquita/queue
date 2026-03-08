@@ -54,9 +54,10 @@ export class QueueConfigResolver {
   /**
    * Resolve the retry policy for a job using priority: job > queue > global.
    */
-  resolveRetryConfig(queue: string, jobRetryConfig?: RetryConfig): RetryConfig {
+  resolveRetryConfig(queue: string, jobOptions?: JobOptions): RetryConfig {
     const queueConfig = this.#queueConfigs.get(queue)
     const queueRetryConfig = queueConfig?.retry || {}
+    const jobRetryConfig = this.#normalizeJobRetryConfig(jobOptions)
 
     const maxRetries =
       jobRetryConfig?.maxRetries ??
@@ -94,5 +95,23 @@ export class QueueConfigResolver {
    */
   getWorkerTimeout(): Duration | undefined {
     return this.#workerTimeout
+  }
+
+  /**
+   * Normalize job retry settings so top-level `maxRetries` participates in the
+   * merge like `retry.maxRetries`.
+   */
+  #normalizeJobRetryConfig(jobOptions?: JobOptions): RetryConfig | undefined {
+    if (
+      !jobOptions ||
+      (jobOptions.retry === undefined && jobOptions.maxRetries === undefined)
+    ) {
+      return undefined
+    }
+
+    return {
+      ...jobOptions.retry,
+      maxRetries: jobOptions.retry?.maxRetries ?? jobOptions.maxRetries,
+    }
   }
 }

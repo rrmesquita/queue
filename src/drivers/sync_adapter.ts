@@ -1,5 +1,7 @@
+import { setTimeout as sleep } from 'node:timers/promises'
 import { Locator } from '../locator.js'
 import { QueueManager } from '../queue_manager.js'
+import { JobExecutionRuntime } from '../job_runtime.js'
 import type { Adapter, AcquiredJob } from '../contracts/adapter.js'
 import type {
   JobContext,
@@ -30,7 +32,7 @@ export class SyncAdapter implements Adapter {
   }
 
   pushOn(queue: string, jobData: JobData): Promise<void> {
-    return this.#execute(jobData.name, jobData.payload, queue)
+    return this.#execute(jobData, queue)
   }
 
   pushLater(jobData: JobData, delay: number): Promise<void> {
@@ -39,7 +41,7 @@ export class SyncAdapter implements Adapter {
 
   pushLaterOn(queue: string, jobData: JobData, delay: number): Promise<void> {
     setTimeout(() => {
-      void this.#execute(jobData.name, jobData.payload, queue)
+      void this.#execute(jobData, queue)
     }, delay)
 
     return Promise.resolve()
@@ -142,27 +144,58 @@ export class SyncAdapter implements Adapter {
     return Promise.resolve(null)
   }
 
-  async #execute(jobName: string, payload: unknown, queue: string = 'default'): Promise<void> {
-    const JobClass = Locator.get(jobName)
+  async #execute(jobData: JobData, queue: string = 'default'): Promise<void> {
+    const JobClass = Locator.get(jobData.name)
 
     if (!JobClass) {
-      throw new Error(`Job class ${jobName} not found.`)
+      throw new Error(`Job class ${jobData.name} not found.`)
     }
 
-    const context: JobContext = {
-      jobId: `sync-${Date.now()}`,
-      name: jobName,
-      attempt: 1,
-      queue,
-      priority: DEFAULT_PRIORITY,
-      acquiredAt: new Date(),
-      stalledCount: 0,
-    }
-
+    const options = JobClass.options || {}
+    const configResolver = QueueManager.getConfigResolver()
+    const runtime = JobExecutionRuntime.from({
+      jobName: jobData.name,
+      options,
+      retryConfig: configResolver.resolveRetryConfig(queue, options),
+      defaultTimeout: configResolver.getWorkerTimeout(),
+    })
     const jobFactory = QueueManager.getJobFactory()
-    const jobInstance = jobFactory ? await jobFactory(JobClass) : new JobClass()
+    let attempts = jobData.attempts
 
-    jobInstance.$hydrate(payload, context)
-    await jobInstance.execute()
+    while (true) {
+      const context: JobContext = {
+        jobId: jobData.id,
+        name: jobData.name,
+        attempt: attempts + 1,
+        queue,
+        priority: jobData.priority ?? DEFAULT_PRIORITY,
+        acquiredAt: new Date(),
+        stalledCount: jobData.stalledCount ?? 0,
+      }
+
+      const jobInstance = jobFactory ? await jobFactory(JobClass) : new JobClass()
+
+      try {
+        await runtime.execute(jobInstance, jobData.payload, context)
+        return
+      } catch (error) {
+        const outcome = runtime.resolveFailure(error as Error, attempts)
+
+        if (outcome.type === 'failed') {
+          await jobInstance.failed?.(outcome.hookError)
+          return
+        }
+
+        attempts++
+
+        if (outcome.type === 'retry' && outcome.retryAt) {
+          const delay = outcome.retryAt.getTime() - Date.now()
+
+          if (delay > 0) {
+            await sleep(delay)
+          }
+        }
+      }
+    }
   }
 }

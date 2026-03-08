@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { setTimeout } from 'node:timers/promises'
 import debug from './debug.js'
 import { parse } from './utils.js'
-import * as errors from './exceptions.js'
 import { QueueManager } from './queue_manager.js'
 import { JobPool } from './job_pool.js'
+import { JobExecutionRuntime } from './job_runtime.js'
 import type { Adapter, AcquiredJob } from './contracts/adapter.js'
 import type { JobContext, JobOptions, QueueManagerConfig, WorkerCycle } from './types/main.js'
 import { Locator } from './locator.js'
@@ -330,56 +330,55 @@ export class Worker {
 
     debug('worker %s: executing job %s (%s)', this.#id, job.id, job.name)
 
-    const { instance, options, timeout, context, payload } = await this.#initJob(job, queue)
+    const { instance, options, context, payload } = await this.#initJob(job, queue)
     const configResolver = QueueManager.getConfigResolver()
     const retention = configResolver.resolveJobOptions(queue, options)
+    const runtime = JobExecutionRuntime.from({
+      jobName: job.name,
+      options,
+      retryConfig: configResolver.resolveRetryConfig(queue, options),
+      defaultTimeout: configResolver.getWorkerTimeout(),
+    })
 
     try {
-      await this.#executeWithTimeout(instance, payload, context, timeout)
+      await runtime.execute(instance, payload, context)
       await this.#adapter.completeJob(job.id, queue, retention.removeOnComplete)
 
       const duration = (performance.now() - startTime).toFixed(2)
       debug('worker %s: successfully executed job %s in %dms', this.#id, job.id, duration)
     } catch (e) {
-      const isTimeout = e instanceof errors.E_JOB_TIMEOUT
+      const outcome = runtime.resolveFailure(e as Error, job.attempts)
 
-      if (isTimeout && options.failOnTimeout) {
+      if (outcome.type === 'failed' && outcome.reason === 'timeout') {
         debug('worker %s: job %s timed out and failOnTimeout is set', this.#id, job.id)
-        await this.#adapter.failJob(job.id, queue, e as Error, retention.removeOnFail)
-        await instance.failed?.(e as Error)
+        await this.#adapter.failJob(job.id, queue, outcome.storageError, retention.removeOnFail)
+        await instance.failed?.(outcome.hookError)
         return
       }
 
-      const mergedConfig = configResolver.resolveRetryConfig(queue, options.retry)
-
-      if (typeof mergedConfig.maxRetries === 'undefined' || mergedConfig.maxRetries <= 0) {
+      if (outcome.type === 'failed' && outcome.reason === 'no-retries') {
         debug('worker %s: job %s has no retries configured, marking as failed', this.#id, job.id)
-        await this.#adapter.failJob(job.id, queue, e as Error, retention.removeOnFail)
-        await instance.failed?.(e as Error)
+        await this.#adapter.failJob(job.id, queue, outcome.storageError, retention.removeOnFail)
+        await instance.failed?.(outcome.hookError)
         return
       }
 
-      if (job.attempts >= mergedConfig.maxRetries!) {
+      if (outcome.type === 'failed' && outcome.reason === 'max-attempts') {
         debug(
           'worker %s: job %s has exceeded max retries (%d), marking as failed',
           this.#id,
           job.id,
-          mergedConfig.maxRetries
+          runtime.maxRetries
         )
-        await this.#adapter.failJob(job.id, queue, e as Error, retention.removeOnFail)
-        const exception = new errors.E_JOB_MAX_ATTEMPTS_REACHED([job.name], { cause: e })
-        await instance.failed?.(exception)
+        await this.#adapter.failJob(job.id, queue, outcome.storageError, retention.removeOnFail)
+        await instance.failed?.(outcome.hookError)
 
         return
       }
 
-      if (mergedConfig.backoff) {
-        const strategy = mergedConfig.backoff()
-        const nextRetryAt = strategy.getNextRetryAt(job.attempts + 1)
-
-        debug('worker %s: job %s will retry at %s', this.#id, job.id, nextRetryAt.toISOString())
-
-        await this.#adapter.retryJob(job.id, queue, nextRetryAt)
+      if (outcome.type === 'retry' && outcome.retryAt) {
+        debug('worker %s: job %s will retry at %s', this.#id, job.id, outcome.retryAt.toISOString())
+        await this.#adapter.retryJob(job.id, queue, outcome.retryAt)
         return
       }
 
@@ -393,7 +392,6 @@ export class Worker {
   ): Promise<{
     instance: Job
     options: JobOptions
-    timeout: number | undefined
     context: JobContext
     payload: unknown
   }> {
@@ -413,79 +411,13 @@ export class Worker {
       const jobFactory = QueueManager.getJobFactory()
       const instance = jobFactory ? await jobFactory(JobClass) : new JobClass()
       const options = JobClass.options || {}
-      const timeout = this.#getJobTimeout(options)
 
-      return { instance, options, timeout, context, payload: job.payload }
+      return { instance, options, context, payload: job.payload }
     } catch (error) {
       debug('worker %s: failed to initialize job %s (%s)', this.#id, job.id, job.name)
       const retention = QueueManager.getConfigResolver().resolveJobOptions(queue)
       await this.#adapter.failJob(job.id, queue, error as Error, retention.removeOnFail)
       throw error
-    }
-  }
-
-  #getJobTimeout(options: JobOptions): number | undefined {
-    if (options.timeout !== undefined) {
-      return parse(options.timeout)
-    }
-
-    if (this.#config.worker?.timeout !== undefined) {
-      return parse(this.#config.worker.timeout)
-    }
-
-    return undefined
-  }
-
-  async #executeWithTimeout(
-    instance: Job,
-    payload: unknown,
-    context: JobContext,
-    timeout?: number
-  ): Promise<void> {
-    if (timeout === undefined) {
-      instance.$hydrate(payload, context)
-      return instance.execute()
-    }
-
-    const signal = AbortSignal.timeout(timeout)
-    instance.$hydrate(payload, context, signal)
-
-    const { abortPromise, cleanupAbortListener } = this.#createTimeoutAbortRace(
-      signal,
-      instance.constructor.name,
-      timeout
-    )
-
-    try {
-      await Promise.race([instance.execute(), abortPromise])
-    } finally {
-      cleanupAbortListener()
-    }
-  }
-
-  #createTimeoutAbortRace(signal: AbortSignal, jobName: string, timeout: number) {
-    let abortHandler: (() => void) | undefined
-
-    const abortPromise = new Promise<never>((_, reject) => {
-      abortHandler = () => {
-        reject(new errors.E_JOB_TIMEOUT([jobName, timeout]))
-      }
-
-      if (signal.aborted) {
-        abortHandler()
-        return
-      }
-
-      signal.addEventListener('abort', abortHandler, { once: true })
-    })
-
-    return {
-      abortPromise,
-      cleanupAbortListener: () => {
-        if (abortHandler) {
-          signal.removeEventListener('abort', abortHandler)
-        }
-      },
     }
   }
 

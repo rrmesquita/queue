@@ -292,6 +292,17 @@ import { sync } from '@boringnode/queue/drivers/sync_adapter'
 const adapter = sync() // Jobs execute immediately
 ```
 
+Use the `sync` adapter for tests and lightweight local development only.
+
+- `await MyJob.dispatch(payload).run()` waits for the job to fully finish.
+- Retries are executed inline, not by a background worker.
+- If you configure backoff, the adapter will `sleep` between attempts.
+- This means the caller can stay blocked for the full retry duration.
+
+Example: with `maxRetries: 3` and an exponential backoff of `1s`, `2s`, `4s`,
+the request or command that dispatched the job can stay busy for about 7 seconds
+before the job exhausts its retries and runs `failed()`.
+
 ## Job Options
 
 ```typescript
@@ -337,6 +348,14 @@ export default class ReliableJob extends Job<Payload> {
   }
 }
 ```
+
+`maxRetries` can be defined directly on the job options, and `retry.backoff`
+controls the delay between attempts.
+
+> With the `sync` adapter, these delays happen inline in the caller via
+> `sleep`. If a job fails repeatedly, `dispatch().run()` will take as long as
+> the total backoff duration. Use a worker-backed adapter when you do not want
+> retries to slow down the request/command that dispatched the job.
 
 <details>
 <summary><strong>Available strategies</strong></summary>
