@@ -331,7 +331,8 @@ export class Worker {
     debug('worker %s: executing job %s (%s)', this.#id, job.id, job.name)
 
     const { instance, options, timeout, context, payload } = await this.#initJob(job, queue)
-    const retention = QueueManager.getMergedJobOptions(queue, options)
+    const configResolver = QueueManager.getConfigResolver()
+    const retention = configResolver.resolveJobOptions(queue, options)
 
     try {
       await this.#executeWithTimeout(instance, payload, context, timeout)
@@ -349,7 +350,7 @@ export class Worker {
         return
       }
 
-      const mergedConfig = QueueManager.getMergedRetryConfig(queue, options.retry)
+      const mergedConfig = configResolver.resolveRetryConfig(queue, options.retry)
 
       if (typeof mergedConfig.maxRetries === 'undefined' || mergedConfig.maxRetries <= 0) {
         debug('worker %s: job %s has no retries configured, marking as failed', this.#id, job.id)
@@ -417,7 +418,7 @@ export class Worker {
       return { instance, options, timeout, context, payload: job.payload }
     } catch (error) {
       debug('worker %s: failed to initialize job %s (%s)', this.#id, job.id, job.name)
-      const retention = QueueManager.getMergedJobOptions(queue)
+      const retention = QueueManager.getConfigResolver().resolveJobOptions(queue)
       await this.#adapter.failJob(job.id, queue, error as Error, retention.removeOnFail)
       throw error
     }

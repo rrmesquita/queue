@@ -3,25 +3,17 @@ import debug from './debug.js'
 import { Locator } from './locator.js'
 import { consoleLogger, type Logger } from './logger.js'
 import { FakeAdapter } from './drivers/fake_adapter.js'
+import { QueueConfigResolver } from './queue_config_resolver.js'
 import type { Adapter } from './contracts/adapter.js'
-import type {
-  AdapterFactory,
-  JobFactory,
-  JobOptions,
-  QueueConfig,
-  QueueManagerConfig,
-  RetryConfig,
-} from './types/main.js'
+import type { AdapterFactory, JobFactory, QueueManagerConfig } from './types/main.js'
 
 type QueueManagerFakeState = {
   defaultAdapter: string
   adapters: Record<string, AdapterFactory>
   adapterInstances: Map<string, Adapter>
-  globalRetryConfig?: RetryConfig
-  globalJobOptions?: JobOptions
-  queueConfigs: Map<string, QueueConfig>
   logger: Logger
   jobFactory?: JobFactory
+  configResolver: QueueConfigResolver
   fakeAdapter: FakeAdapter
 }
 
@@ -61,11 +53,9 @@ class QueueManagerSingleton {
   #defaultAdapter!: string
   #adapters: Record<string, AdapterFactory> = {}
   #adapterInstances: Map<string, Adapter> = new Map()
-  #globalRetryConfig?: RetryConfig
-  #globalJobOptions?: JobOptions
-  #queueConfigs: Map<string, QueueConfig> = new Map()
   #logger: Logger = consoleLogger
   #jobFactory?: JobFactory
+  #configResolver: QueueConfigResolver = new QueueConfigResolver({})
   #fakeState?: QueueManagerFakeState
 
   /**
@@ -101,16 +91,9 @@ class QueueManagerSingleton {
 
     this.#defaultAdapter = config.default
     this.#adapters = config.adapters
-    this.#globalRetryConfig = config.retry
-    this.#globalJobOptions = config.defaultJobOptions
     this.#logger = config.logger ?? consoleLogger
     this.#jobFactory = config.jobFactory
-
-    if (config.queues) {
-      for (const [queue, queueConfig] of Object.entries(config.queues)) {
-        this.#queueConfigs.set(queue, queueConfig as QueueConfig)
-      }
-    }
+    this.#configResolver = QueueConfigResolver.from(config)
 
     if (config.locations && config.locations.length > 0) {
       const registered = await Locator.registerFromGlob(config.locations)
@@ -216,11 +199,9 @@ class QueueManagerSingleton {
       defaultAdapter: this.#defaultAdapter,
       adapters: this.#adapters,
       adapterInstances: this.#adapterInstances,
-      globalRetryConfig: this.#globalRetryConfig,
-      globalJobOptions: this.#globalJobOptions,
-      queueConfigs: this.#queueConfigs,
       logger: this.#logger,
       jobFactory: this.#jobFactory,
+      configResolver: this.#configResolver,
       fakeAdapter,
     }
 
@@ -257,44 +238,9 @@ class QueueManagerSingleton {
     this.#defaultAdapter = state.defaultAdapter
     this.#adapters = state.adapters
     this.#adapterInstances = state.adapterInstances
-    this.#globalRetryConfig = state.globalRetryConfig
-    this.#globalJobOptions = state.globalJobOptions
-    this.#queueConfigs = state.queueConfigs
     this.#logger = state.logger
     this.#jobFactory = state.jobFactory
-  }
-
-  /**
-   * Get the merged retry configuration for a job.
-   *
-   * Configuration is merged with priority: job > queue > global.
-   * This allows specific jobs or queues to override global defaults.
-   *
-   * @param queue - The queue name
-   * @param jobRetryConfig - Optional job-level retry config
-   * @returns The merged retry configuration
-   *
-   * @example
-   * ```typescript
-   * // Global: maxRetries=3, Queue: maxRetries=5, Job: maxRetries=1
-   * // Result: maxRetries=1 (job wins)
-   * const config = QueueManager.getMergedRetryConfig('emails', { maxRetries: 1 })
-   * ```
-   */
-  getMergedRetryConfig(queue: string, jobRetryConfig?: RetryConfig): RetryConfig {
-    const queueConfig = this.#queueConfigs.get(queue)
-    const queueRetryConfig = queueConfig?.retry || {}
-
-    let maxRetries =
-      jobRetryConfig?.maxRetries ??
-      queueRetryConfig.maxRetries ??
-      this.#globalRetryConfig?.maxRetries ??
-      0
-
-    let backoff =
-      jobRetryConfig?.backoff || queueRetryConfig.backoff || this.#globalRetryConfig?.backoff
-
-    return { maxRetries, backoff }
+    this.#configResolver = state.configResolver
   }
 
   /**
@@ -307,22 +253,14 @@ class QueueManagerSingleton {
   }
 
   /**
-   * Get the merged job options for a job (priority: job > queue > global).
+   * Get the resolver responsible for effective queue/job runtime config.
    */
-  getMergedJobOptions(queue: string, jobOptions?: JobOptions): JobOptions {
-    const queueConfig = this.#queueConfigs.get(queue)
-    const queueJobOptions = queueConfig?.defaultJobOptions
-
-    return {
-      removeOnComplete:
-        jobOptions?.removeOnComplete ??
-        queueJobOptions?.removeOnComplete ??
-        this.#globalJobOptions?.removeOnComplete,
-      removeOnFail:
-        jobOptions?.removeOnFail ??
-        queueJobOptions?.removeOnFail ??
-        this.#globalJobOptions?.removeOnFail,
+  getConfigResolver(): QueueConfigResolver {
+    if (!this.#initialized) {
+      throw new errors.E_QUEUE_NOT_INITIALIZED()
     }
+
+    return this.#configResolver
   }
 
   #validateConfig(config: QueueManagerConfig): void {
@@ -376,6 +314,7 @@ class QueueManagerSingleton {
 
     this.#adapterInstances.clear()
     this.#initialized = false
+    this.#configResolver = new QueueConfigResolver({})
     this.#fakeState = undefined
   }
 }

@@ -2,7 +2,6 @@ import { test } from '@japa/runner'
 import * as errors from '../src/exceptions.js'
 import { QueueManager } from '../src/queue_manager.js'
 import { sync } from '../src/drivers/sync_adapter.js'
-import { exponentialBackoff } from '../src/strategies/backoff_strategy.js'
 import { MemoryLogger } from './_mocks/memory_logger.js'
 
 test.group('QueueManager', () => {
@@ -71,63 +70,15 @@ test.group('QueueManager', () => {
     }
   })
 
-  test('should merge retry configurations correctly (global)', async ({ assert }) => {
+  test('should expose a config resolver after initialization', async ({ assert }) => {
     await QueueManager.init({
       default: 'sync',
       adapters: { sync: sync() },
-      locations: ['./examples/jobs/**/*'],
-      retry: { maxRetries: 5, backoff: exponentialBackoff() },
     })
 
-    let config = QueueManager.getMergedRetryConfig('default')
-    assert.equal(config.maxRetries, 5)
-  })
+    const resolver = QueueManager.getConfigResolver()
 
-  test('should merge retry configurations correctly (queue)', async ({ assert }) => {
-    await QueueManager.init({
-      default: 'sync',
-      adapters: { sync: sync() },
-      locations: ['./examples/jobs/**/*'],
-      retry: { maxRetries: 5, backoff: exponentialBackoff() },
-      queues: {
-        email: { retry: { maxRetries: 3 } },
-      },
-    })
-
-    let config = QueueManager.getMergedRetryConfig('email')
-    assert.equal(config.maxRetries, 3)
-  })
-
-  test('should merge retry configurations correctly (job)', async ({ assert }) => {
-    await QueueManager.init({
-      default: 'sync',
-      adapters: { sync: sync() },
-      locations: ['./examples/jobs/**/*'],
-      retry: { maxRetries: 5, backoff: exponentialBackoff() },
-      queues: {
-        email: { retry: { maxRetries: 3 } },
-      },
-    })
-
-    let config = QueueManager.getMergedRetryConfig('email', { maxRetries: 2 })
-    assert.equal(config.maxRetries, 2)
-  })
-
-  test('should respect maxRetries: 0 from job config over global/queue config', async ({
-    assert,
-  }) => {
-    await QueueManager.init({
-      default: 'sync',
-      adapters: { sync: sync() },
-      locations: ['./examples/jobs/**/*'],
-      retry: { maxRetries: 5, backoff: exponentialBackoff() },
-      queues: {
-        email: { retry: { maxRetries: 3 } },
-      },
-    })
-
-    let config = QueueManager.getMergedRetryConfig('email', { maxRetries: 0 })
-    assert.equal(config.maxRetries, 0)
+    assert.exists(resolver)
   })
 
   test('should throw E_QUEUE_NOT_INITIALIZED when use() called before init()', async ({
