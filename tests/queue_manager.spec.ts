@@ -81,6 +81,18 @@ test.group('QueueManager', () => {
     assert.exists(resolver)
   })
 
+  test('should expose the configured logger', async ({ assert }) => {
+    const logger = new MemoryLogger()
+
+    await QueueManager.init({
+      default: 'sync',
+      adapters: { sync: sync() },
+      logger,
+    })
+
+    assert.strictEqual(QueueManager.getLogger(), logger)
+  })
+
   test('should throw E_QUEUE_NOT_INITIALIZED when use() called before init()', async ({
     assert,
   }) => {

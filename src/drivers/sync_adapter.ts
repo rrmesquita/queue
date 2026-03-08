@@ -41,7 +41,12 @@ export class SyncAdapter implements Adapter {
 
   pushLaterOn(queue: string, jobData: JobData, delay: number): Promise<void> {
     setTimeout(() => {
-      void this.#execute(jobData, queue)
+      void this.#execute(jobData, queue).catch((error) => {
+        QueueManager.getLogger().error(
+          { err: error, jobId: jobData.id, jobName: jobData.name, queue },
+          'Failed to execute delayed sync job'
+        )
+      })
     }, delay)
 
     return Promise.resolve()

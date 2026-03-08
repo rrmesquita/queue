@@ -253,6 +253,13 @@ class QueueManagerSingleton {
   }
 
   /**
+   * Get the configured logger used by the queue runtime.
+   */
+  getLogger(): Logger {
+    return this.#logger
+  }
+
+  /**
    * Get the resolver responsible for effective queue/job runtime config.
    */
   getConfigResolver(): QueueConfigResolver {
