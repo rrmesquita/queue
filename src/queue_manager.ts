@@ -87,6 +87,11 @@ class QueueManagerSingleton {
 
     this.#validateConfig(config)
 
+    for (const [name, adapter] of this.#adapterInstances) {
+      debug('destroying adapter "%s" before reinitialization', name)
+      await adapter.destroy()
+    }
+
     this.#adapterInstances.clear()
 
     this.#defaultAdapter = config.default

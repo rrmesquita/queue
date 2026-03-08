@@ -3,6 +3,7 @@ import * as errors from '../src/exceptions.js'
 import { QueueManager } from '../src/queue_manager.js'
 import { sync } from '../src/drivers/sync_adapter.js'
 import { MemoryLogger } from './_mocks/memory_logger.js'
+import type { Adapter } from '../src/contracts/adapter.js'
 
 test.group('QueueManager', () => {
   test('should validate adapter presence', async ({ assert }) => {
@@ -165,5 +166,76 @@ test.group('QueueManager', () => {
     assert.strictEqual(QueueManager.use(), original)
 
     await QueueManager.destroy()
+  })
+
+  test('should destroy existing adapter instances before reinitializing', async ({
+    assert,
+    cleanup,
+  }) => {
+    const adapters: Adapter[] = []
+    let destroyedCount = 0
+
+    const createAdapter = (): Adapter => ({
+      setWorkerId() {},
+      pop: async () => null,
+      popFrom: async () => null,
+      recoverStalledJobs: async () => 0,
+      completeJob: async () => {},
+      failJob: async () => {},
+      retryJob: async () => {},
+      getJob: async () => null,
+      push: async () => {},
+      pushOn: async () => {},
+      pushLater: async () => {},
+      pushLaterOn: async () => {},
+      pushMany: async () => {},
+      pushManyOn: async () => {},
+      size: async () => 0,
+      sizeOf: async () => 0,
+      destroy: async () => {
+        destroyedCount++
+      },
+      upsertSchedule: async () => 'schedule-id',
+      createSchedule: async () => 'schedule-id',
+      getSchedule: async () => null,
+      listSchedules: async () => [],
+      updateSchedule: async () => {},
+      deleteSchedule: async () => {},
+      claimDueSchedule: async () => null,
+    })
+
+    cleanup(async () => {
+      await QueueManager.destroy()
+    })
+
+    await QueueManager.init({
+      default: 'custom',
+      adapters: {
+        custom: () => {
+          const adapter = createAdapter()
+          adapters.push(adapter)
+          return adapter
+        },
+      },
+    })
+
+    const firstAdapter = QueueManager.use()
+
+    await QueueManager.init({
+      default: 'custom',
+      adapters: {
+        custom: () => {
+          const adapter = createAdapter()
+          adapters.push(adapter)
+          return adapter
+        },
+      },
+    })
+
+    const secondAdapter = QueueManager.use()
+
+    assert.strictEqual(firstAdapter, adapters[0])
+    assert.strictEqual(secondAdapter, adapters[1])
+    assert.equal(destroyedCount, 1)
   })
 })
