@@ -48,18 +48,18 @@
     "@opentelemetry/sdk-trace-base": "^2.6.0",
     "@poppinss/ts-exec": "^1.4.4",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^24.11.0",
-    "@types/pg": "^8.18.0",
-    "better-sqlite3": "^12.6.2",
-    "bullmq": "^5.70.1",
+    "@types/node": "^25.5.0",
+    "@types/pg": "^8.20.0",
+    "better-sqlite3": "^12.8.0",
+    "bullmq": "^5.71.0",
     "c8": "^11.0.0",
     "del-cli": "^7.0.0",
-    "ioredis": "^5.10.0",
-    "knex": "^3.1.0",
-    "oxfmt": "^0.36.0",
-    "oxlint": "^1.51.0",
-    "oxlint-tsgolint": "^0.15.0",
-    "pg": "^8.19.0",
+    "ioredis": "^5.10.1",
+    "knex": "^3.2.4",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.56.0",
+    "oxlint-tsgolint": "^0.17.1",
+    "pg": "^8.20.0",
     "release-it": "^19.2.4",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
@@ -107,8 +107,7 @@
   ],
   "publishConfig": {
     "access": "public",
-    "tag": "latest",
-    "provenance": true
+    "tag": "latest"
   },
   "release-it": {
     "git": {
