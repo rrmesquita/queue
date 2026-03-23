@@ -107,7 +107,8 @@
   ],
   "publishConfig": {
     "access": "public",
-    "tag": "latest"
+    "tag": "latest",
+    "provenance": true
   },
   "release-it": {
     "git": {
