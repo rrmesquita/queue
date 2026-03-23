@@ -28,14 +28,16 @@ jobs:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
 
+      - run: corepack enable
+
       - name: git config
         run: |
           git config user.name "${GITHUB_ACTOR}"
           git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
 
-      - run: npm install
+      - run: yarn install
 
       - name: Release
-        run: npm run release -- --ci ${{ inputs.version }}
+        run: yarn release --ci ${{ inputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
