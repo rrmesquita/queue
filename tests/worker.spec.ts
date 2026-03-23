@@ -554,7 +554,7 @@ test.group('Worker', () => {
     let addedAbortListeners = 0
     let removedAbortListeners = 0
 
-    controller.signal.addEventListener = ((type, listener, options) => {
+    controller.signal.addEventListener = ((type: string, listener: any, options: any) => {
       if (type === 'abort') {
         addedAbortListeners++
       }
@@ -562,7 +562,7 @@ test.group('Worker', () => {
       return originalAddEventListener(type, listener, options)
     }) as AbortSignal['addEventListener']
 
-    controller.signal.removeEventListener = ((type, listener, options) => {
+    controller.signal.removeEventListener = ((type: string, listener: any, options: any) => {
       if (type === 'abort') {
         removedAbortListeners++
       }
