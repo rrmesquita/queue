@@ -107,7 +107,8 @@
   ],
   "publishConfig": {
     "access": "public",
-    "tag": "latest"
+    "tag": "latest",
+    "provenance": true
   },
   "release-it": {
     "git": {
@@ -119,6 +120,10 @@
       "release": true,
       "releaseName": "v${version}",
       "web": true
+    },
+    "npm": {
+      "publish": true,
+      "skipChecks": true
     }
   },
   "packageManager": "yarn@4.12.0",
