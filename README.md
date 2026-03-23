@@ -560,6 +560,7 @@ The instrumentation uses standard [OTel messaging semantic conventions](https://
 | `messaging.job.group_id`        | Custom  | Queue-specific group identifier            |
 | `messaging.job.priority`        | Custom  | Queue-specific job priority                |
 | `messaging.job.delay_ms`        | Custom  | Delay before the job becomes available     |
+| `messaging.job.queue_time_ms`   | Custom  | Time spent waiting in queue before processing |
 
 ### Trace Context Propagation
 

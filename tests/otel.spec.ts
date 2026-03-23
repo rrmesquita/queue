@@ -151,6 +151,37 @@ test.group('QueueInstrumentation | dispatch via DC', (group) => {
     instrumentation.disable()
   })
 
+  test('injects boringqueue.dispatched_at into traceContext', async ({ assert }) => {
+    const { instrumentation } = await setupWithWrappers()
+
+    const jobData: JobData = { id: 'ts-1', name: 'TimestampJob', payload: {}, attempts: 0 }
+    const message: JobDispatchMessage = { jobs: [jobData], queue: 'default' }
+    await dispatchChannel.tracePromise(async () => {}, message)
+
+    assert.isDefined(jobData.traceContext)
+    assert.isTrue('boringqueue.dispatched_at' in jobData.traceContext!)
+    const dispatchedAt = Number(jobData.traceContext!['boringqueue.dispatched_at'])
+    assert.isAbove(dispatchedAt, 0)
+    assert.closeTo(dispatchedAt, Date.now(), 1000)
+
+    instrumentation.disable()
+  })
+
+  test('batch dispatch injects boringqueue.dispatched_at into every job', async ({ assert }) => {
+    const { instrumentation } = await setupWithWrappers()
+
+    const jobs: JobData[] = [
+      { id: 'bts-1', name: 'BatchTsJob', payload: {}, attempts: 0 },
+      { id: 'bts-2', name: 'BatchTsJob', payload: {}, attempts: 0 },
+    ]
+    await dispatchChannel.tracePromise(async () => {}, { jobs, queue: 'default' })
+
+    assert.isTrue('boringqueue.dispatched_at' in jobs[0].traceContext!)
+    assert.isTrue('boringqueue.dispatched_at' in jobs[1].traceContext!)
+
+    instrumentation.disable()
+  })
+
   test('batch dispatch injects trace context into every job', async ({ assert }) => {
     const { instrumentation } = await setupWithWrappers()
 
@@ -259,6 +290,69 @@ test.group('QueueInstrumentation | execute via executionWrapper', (group) => {
 
     const retryEvent = span!.events.find((e) => e.name === 'messaging.retry')
     assert.isDefined(retryEvent)
+
+    instrumentation.disable()
+  })
+
+  test('sets queue_time_ms attribute when boringqueue.dispatched_at is present', async ({ assert }) => {
+    const { instrumentation, executionWrapper } = await setupWithWrappers()
+
+    const dispatchedAt = Date.now() - 500
+    const job = makeJob({
+      id: 'qt-1',
+      name: 'QueueTimeJob',
+      traceContext: { 'boringqueue.dispatched_at': String(dispatchedAt) },
+    })
+    const message: JobExecuteMessage = { job, queue: 'default', status: 'completed' }
+
+    await executeChannel.tracePromise(async () => {
+      await executionWrapper(async () => {}, job, 'default')
+    }, message)
+
+    const spans = getFinishedSpans()
+    const span = spans.find((s) => s.kind === SpanKind.CONSUMER)
+    const queueTime = span!.attributes['messaging.job.queue_time_ms'] as number
+    assert.isDefined(queueTime)
+    assert.isAtLeast(queueTime, 400)
+
+    instrumentation.disable()
+  })
+
+  test('does not set queue_time_ms when boringqueue.dispatched_at is missing', async ({ assert }) => {
+    const { instrumentation, executionWrapper } = await setupWithWrappers()
+
+    const job = makeJob({ id: 'qt-2', name: 'NoQueueTimeJob' })
+    const message: JobExecuteMessage = { job, queue: 'default', status: 'completed' }
+
+    await executeChannel.tracePromise(async () => {
+      await executionWrapper(async () => {}, job, 'default')
+    }, message)
+
+    const spans = getFinishedSpans()
+    const span = spans.find((s) => s.kind === SpanKind.CONSUMER)
+    assert.notProperty(span!.attributes, 'messaging.job.queue_time_ms')
+
+    instrumentation.disable()
+  })
+
+  test('queue_time_ms end-to-end via dispatch then execute', async ({ assert }) => {
+    const { instrumentation, executionWrapper } = await setupWithWrappers()
+
+    const jobData: JobData = { id: 'e2e-qt-1', name: 'E2EQueueTimeJob', payload: {}, attempts: 0 }
+    await dispatchChannel.tracePromise(async () => {}, { jobs: [jobData], queue: 'default' })
+
+    const job = makeJob({ id: 'e2e-qt-1', name: 'E2EQueueTimeJob', traceContext: jobData.traceContext })
+    const message: JobExecuteMessage = { job, queue: 'default', status: 'completed' }
+
+    await executeChannel.tracePromise(async () => {
+      await executionWrapper(async () => {}, job, 'default')
+    }, message)
+
+    const spans = getFinishedSpans()
+    const span = spans.find((s) => s.kind === SpanKind.CONSUMER)
+    const queueTime = span!.attributes['messaging.job.queue_time_ms'] as number
+    assert.isDefined(queueTime)
+    assert.isAtLeast(queueTime, 0)
 
     instrumentation.disable()
   })

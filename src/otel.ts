@@ -183,6 +183,7 @@ export class QueueInstrumentation extends InstrumentationBase<QueueInstrumentati
     for (const job of message.jobs) {
       if (!job.traceContext) job.traceContext = {}
       propagation.inject(dispatchContext, job.traceContext)
+      job.traceContext['boringqueue.dispatched_at'] = String(Date.now())
     }
 
     this.dispatchSpans.set(message, span)
@@ -229,6 +230,11 @@ export class QueueInstrumentation extends InstrumentationBase<QueueInstrumentati
       },
       baseContext
     )
+
+    const dispatchedAt = Number(job.traceContext?.['boringqueue.dispatched_at'])
+    if (dispatchedAt) {
+      span.setAttribute('messaging.job.queue_time_ms', Date.now() - dispatchedAt)
+    }
 
     this.executeSpans.set(job.id, span)
     const executionContext = trace.setSpan(baseContext, span)
