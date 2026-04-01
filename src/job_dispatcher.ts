@@ -196,6 +196,7 @@ export class JobDispatcher<T> {
       attempts: 0,
       priority: this.#priority,
       groupId: this.#groupId,
+      createdAt: Date.now(),
     }
 
     const message: JobDispatchMessage = { jobs: [jobData], queue: this.#queue, delay: parsedDelay }

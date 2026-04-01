@@ -123,6 +123,12 @@ export interface JobData {
   groupId?: string
 
   /**
+   * Timestamp (ms) when the job was dispatched.
+   * Used to compute queue wait time in OTel instrumentation.
+   */
+  createdAt?: number
+
+  /**
    * Serialized trace context for distributed tracing.
    * Injected by OTel plugin at dispatch time.
    */

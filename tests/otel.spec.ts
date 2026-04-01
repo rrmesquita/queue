@@ -151,7 +151,7 @@ test.group('QueueInstrumentation | dispatch via DC', (group) => {
     instrumentation.disable()
   })
 
-  test('injects boringqueue.dispatched_at into traceContext', async ({ assert }) => {
+  test('does not inject non-standard keys into traceContext', async ({ assert }) => {
     const { instrumentation } = await setupWithWrappers()
 
     const jobData: JobData = { id: 'ts-1', name: 'TimestampJob', payload: {}, attempts: 0 }
@@ -159,25 +159,9 @@ test.group('QueueInstrumentation | dispatch via DC', (group) => {
     await dispatchChannel.tracePromise(async () => {}, message)
 
     assert.isDefined(jobData.traceContext)
-    assert.isTrue('boringqueue.dispatched_at' in jobData.traceContext!)
-    const dispatchedAt = Number(jobData.traceContext!['boringqueue.dispatched_at'])
-    assert.isAbove(dispatchedAt, 0)
-    assert.closeTo(dispatchedAt, Date.now(), 1000)
-
-    instrumentation.disable()
-  })
-
-  test('batch dispatch injects boringqueue.dispatched_at into every job', async ({ assert }) => {
-    const { instrumentation } = await setupWithWrappers()
-
-    const jobs: JobData[] = [
-      { id: 'bts-1', name: 'BatchTsJob', payload: {}, attempts: 0 },
-      { id: 'bts-2', name: 'BatchTsJob', payload: {}, attempts: 0 },
-    ]
-    await dispatchChannel.tracePromise(async () => {}, { jobs, queue: 'default' })
-
-    assert.isTrue('boringqueue.dispatched_at' in jobs[0].traceContext!)
-    assert.isTrue('boringqueue.dispatched_at' in jobs[1].traceContext!)
+    for (const key of Object.keys(jobData.traceContext!)) {
+      assert.isFalse(key.startsWith('boringqueue.'), `traceContext should not contain "${key}"`)
+    }
 
     instrumentation.disable()
   })
@@ -294,14 +278,13 @@ test.group('QueueInstrumentation | execute via executionWrapper', (group) => {
     instrumentation.disable()
   })
 
-  test('sets queue_time_ms attribute when boringqueue.dispatched_at is present', async ({ assert }) => {
+  test('sets queue_time_ms attribute when createdAt is present', async ({ assert }) => {
     const { instrumentation, executionWrapper } = await setupWithWrappers()
 
-    const dispatchedAt = Date.now() - 500
     const job = makeJob({
       id: 'qt-1',
       name: 'QueueTimeJob',
-      traceContext: { 'boringqueue.dispatched_at': String(dispatchedAt) },
+      createdAt: Date.now() - 500,
     })
     const message: JobExecuteMessage = { job, queue: 'default', status: 'completed' }
 
@@ -318,7 +301,7 @@ test.group('QueueInstrumentation | execute via executionWrapper', (group) => {
     instrumentation.disable()
   })
 
-  test('does not set queue_time_ms when boringqueue.dispatched_at is missing', async ({ assert }) => {
+  test('does not set queue_time_ms when createdAt is missing', async ({ assert }) => {
     const { instrumentation, executionWrapper } = await setupWithWrappers()
 
     const job = makeJob({ id: 'qt-2', name: 'NoQueueTimeJob' })
@@ -338,10 +321,10 @@ test.group('QueueInstrumentation | execute via executionWrapper', (group) => {
   test('queue_time_ms end-to-end via dispatch then execute', async ({ assert }) => {
     const { instrumentation, executionWrapper } = await setupWithWrappers()
 
-    const jobData: JobData = { id: 'e2e-qt-1', name: 'E2EQueueTimeJob', payload: {}, attempts: 0 }
+    const jobData: JobData = { id: 'e2e-qt-1', name: 'E2EQueueTimeJob', payload: {}, attempts: 0, createdAt: Date.now() }
     await dispatchChannel.tracePromise(async () => {}, { jobs: [jobData], queue: 'default' })
 
-    const job = makeJob({ id: 'e2e-qt-1', name: 'E2EQueueTimeJob', traceContext: jobData.traceContext })
+    const job = makeJob({ id: 'e2e-qt-1', name: 'E2EQueueTimeJob', createdAt: jobData.createdAt, traceContext: jobData.traceContext })
     const message: JobExecuteMessage = { job, queue: 'default', status: 'completed' }
 
     await executeChannel.tracePromise(async () => {

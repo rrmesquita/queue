@@ -152,6 +152,7 @@ export class JobBatchDispatcher<T> {
     const adapter = this.#getAdapterInstance()
     const wrapInternal = QueueManager.getInternalOperationWrapper()
 
+    const now = Date.now()
     const jobs = this.#payloads.map((payload) => ({
       id: randomUUID(),
       name: this.#name,
@@ -159,6 +160,7 @@ export class JobBatchDispatcher<T> {
       attempts: 0,
       priority: this.#priority,
       groupId: this.#groupId,
+      createdAt: now,
     }))
 
     const message: JobDispatchMessage = { jobs, queue: this.#queue }
