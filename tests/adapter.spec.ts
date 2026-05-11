@@ -80,7 +80,41 @@ test.group('Adapter | Redis', (group) => {
     )
   })
 
-  test('deleteSchedule should not leave ghost index under write-failure chaos', async ({ assert }) => {
+  test('claimDueSchedule should use bounded network round-trips when many schedules are not due', async ({
+    assert,
+  }) => {
+    const adapter = new RedisAdapter(connection)
+    const futureRunAt = new Date(Date.now() + 60_000)
+
+    for (let i = 0; i < 50; i++) {
+      const id = `future-schedule-${i}`
+
+      await adapter.upsertSchedule({
+        id,
+        name: 'FutureJob',
+        payload: { i },
+        everyMs: 60_000,
+        timezone: 'UTC',
+      })
+      await adapter.updateSchedule(id, { nextRunAt: futureRunAt })
+    }
+
+    const { result: claimed, writes } = await withRedisWriteSpy({
+      connection,
+      run: () => adapter.claimDueSchedule(),
+    })
+
+    assert.isNull(claimed)
+    assert.isAtMost(
+      writes,
+      2,
+      `Expected bounded claim writes, got ${writes} writes for 50 future schedules`
+    )
+  })
+
+  test('deleteSchedule should not leave ghost index under write-failure chaos', async ({
+    assert,
+  }) => {
     const adapter = new RedisAdapter(connection)
     const id = 'chaos-delete-schedule'
 
