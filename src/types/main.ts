@@ -494,6 +494,16 @@ export interface QueueManagerConfig {
   queues?: Record<string, QueueConfig>
   worker?: WorkerConfig
   locations?: string[]
+
+  /**
+   * Whether `init()` should immediately register jobs from configured locations.
+   *
+   * Framework integrations may disable this to defer job loading until a
+   * command lifecycle is ready, then call `QueueManager.loadJobs()`.
+   *
+   * @default true
+   */
+  autoLoadJobs?: boolean
   logger?: Logger
 
   /**
