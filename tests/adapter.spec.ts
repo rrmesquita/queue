@@ -416,6 +416,54 @@ test.group('Adapter | Redis', (group) => {
     const size = await adapter.sizeOf(queue)
     assert.equal(size, 1)
   })
+
+  test('popFrom should preserve an empty array payload instead of coercing it to an object', async ({
+    assert,
+  }) => {
+    const adapter = new RedisAdapter(connection)
+    const queue = 'empty-array-payload-queue'
+
+    try {
+      await adapter.pushOn(queue, {
+        id: 'empty-array-uuid-1',
+        name: 'TestJob',
+        payload: [],
+        attempts: 0,
+      })
+
+      await adapter.pushOn(queue, {
+        id: 'empty-array-uuid-2',
+        name: 'TestJob',
+        payload: {
+          empty: [],
+          names: ['Alice', 'Bob'],
+          deep: {
+            arr: [],
+            obj: {},
+          }
+        },
+        attempts: 0,
+      })
+
+      const simple = (await adapter.popFrom(queue))!
+      const nested = (await adapter.popFrom(queue))!
+
+      assert.equal(simple.id, 'empty-array-uuid-1')
+      assert.isArray(simple.payload)
+      assert.lengthOf(simple.payload as unknown[], 0)
+
+      assert.deepEqual(nested.payload, {
+        empty: [],
+        names: ['Alice', 'Bob'],
+        deep: {
+          arr: [],
+          obj: {},
+        },
+      })
+    } finally {
+      await adapter.destroy()
+    }
+  })
 })
 
 test.group('Adapter | Knex (SQLite)', (group) => {

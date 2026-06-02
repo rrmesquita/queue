@@ -233,10 +233,13 @@ const ACQUIRE_JOB_SCRIPT = `
   })
   redis.call('HSET', active_key, job_id, active_data)
 
-  -- Return job with acquiredAt
-  local job = cjson.decode(job_data)
-  job.acquiredAt = now
-  return cjson.encode(job)
+  -- Return the raw stored JSON plus acquiredAt separately. Re-encoding the job
+  -- through cjson would coerce empty arrays into empty objects, so the payload
+  -- string is preserved verbatim and merged on the JS side.
+  return cjson.encode({
+    data = job_data,
+    acquiredAt = now
+  })
 `
 
 /**
@@ -517,7 +520,9 @@ const GET_JOB_SCRIPT = `
 
   return cjson.encode({
     status = status,
-    data = cjson.decode(job_data),
+    -- Return the raw stored JSON for the job data. Re-encoding it through cjson
+    -- would coerce empty arrays into empty objects.
+    data = job_data,
     finishedAt = finished_at,
     error = error_msg
   })
@@ -689,7 +694,9 @@ export class RedisAdapter implements Adapter {
       return null
     }
 
-    return JSON.parse(result as string)
+    const { data, acquiredAt } = JSON.parse(result as string) as { data: string; acquiredAt: number }
+
+    return { ...JSON.parse(data), acquiredAt }
   }
 
   async completeJob(jobId: string, queue: string, removeOnComplete?: JobRetention): Promise<void> {
@@ -785,7 +792,9 @@ export class RedisAdapter implements Adapter {
       return null
     }
 
-    return JSON.parse(result as string)
+    const record = JSON.parse(result as string) as Omit<JobRecord, 'data'> & { data: string }
+
+    return { ...record, data: JSON.parse(record.data) as JobData }
   }
 
   push(jobData: JobData): Promise<PushResult | void> {
